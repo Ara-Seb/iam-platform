@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/yourname/iam-platform/db"
-	handlers "github.com/yourname/iam-platform/handler"
+	"github.com/yourname/iam-platform/handler"
 )
 
 func main() {
@@ -15,7 +15,7 @@ func main() {
 	defer conn.Close(context.Background())
 	db.Migrate(conn)
 
-	authHandler := &handlers.AuthHandler{DB: conn}
+	authHandler := &handler.AuthHandler{DB: conn}
 
 	r := chi.NewRouter()
 	r.Post("/register", authHandler.Register)

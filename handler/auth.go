@@ -1,4 +1,4 @@
-package handlers
+package handler
 
 import (
 	"context"
@@ -156,21 +156,34 @@ func generateJWT(user models.User) (string, error) {
 // todo
 func (h *AuthHandler) Token(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
-	tokenString := r.Header.Get("Authorization")
-	if tokenString == "" {
-		http.Error(w, "missing token", http.StatusUnauthorized)
-		return
+	grantType := r.FormValue("grant_type")
+
+	switch grantType {
+	case "client_credentials":
+		h.handleClientCredentials(w, r)
+	case "authorization_code":
+		h.handleAuthorizationCode(w, r)
+	case "refresh_token":
+		h.handleRefreshToken(w, r)
+	case "password":
+		h.handleROPC(w, r)
+	default:
+		// return OAuth2 error response
 	}
+}
 
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		return publicKey, nil
-	})
+func (h *AuthHandler) handleROPC(w http.ResponseWriter, r *http.Request) {
+	panic("unimplemented")
+}
 
-	if err != nil || !token.Valid {
-		http.Error(w, "invalid token", http.StatusUnauthorized)
-		return
-	}
+func (h *AuthHandler) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
+	panic("unimplemented")
+}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"valid": true})
+func (h *AuthHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Request) {
+	panic("unimplemented")
+}
+
+func (h *AuthHandler) handleClientCredentials(w http.ResponseWriter, r *http.Request) {
+	panic("unimplemented")
 }
