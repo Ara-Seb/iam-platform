@@ -2,10 +2,17 @@ package models
 
 import "time"
 
+type ClientType string
+
+const (
+	ClientTypeConfidential ClientType = "confidential"
+	ClientTypePublic       ClientType = "public"
+)
+
 type Client struct {
-	ID           string    `json:"id"`
-	SecretHash   string    `json:"-"`
-	ClientType   string    `json:"client_type"`
-	RedirectURIs []string  `json:"redirect_uris"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID           string     `json:"id"`
+	SecretHash   string     `json:"-"`
+	ClientType   ClientType `json:"client_type"`
+	RedirectURIs []string   `json:"redirect_uris"`
+	CreatedAt    time.Time  `json:"created_at"`
 }

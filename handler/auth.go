@@ -1,57 +1,27 @@
 package handler
 
 import (
-	"context"
-	"crypto/rsa"
-	"crypto/x509"
 	"encoding/json"
-	"encoding/pem"
+	"errors"
 	"log"
 	"net/http"
-	"os"
-	"time"
 
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/yourname/iam-platform/models"
-	"golang.org/x/crypto/bcrypt"
+	"github.com/yourname/iam-platform/repository"
+	"github.com/yourname/iam-platform/service"
 )
-
-var (
-	privateKey *rsa.PrivateKey
-	publicKey  *rsa.PublicKey
-)
-
-func init() {
-	privateBytes, err := os.ReadFile("keys/private.pem")
-	if err != nil {
-		log.Fatal("could not read private key:", err)
-	}
-
-	block, _ := pem.Decode(privateBytes)
-	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-	if err != nil {
-		log.Fatal("could not parse private key:", err)
-	}
-	privateKey = key.(*rsa.PrivateKey)
-
-	publicBytes, err := os.ReadFile("keys/public.pem")
-	if err != nil {
-		log.Fatal("could not read public key:", err)
-	}
-
-	block, _ = pem.Decode(publicBytes)
-	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
-	if err != nil {
-		log.Fatal("could not parse public key:", err)
-	}
-
-	publicKey = pub.(*rsa.PublicKey)
-}
 
 type AuthHandler struct {
-	DB *pgx.Conn
+	ClientRepo   *repository.ClientRepository
+	TokenService *service.TokenService
+	AuthService  *service.AuthService
+}
+
+func NewAuthHandler(clientRepo *repository.ClientRepository, tokenService *service.TokenService, authService *service.AuthService) *AuthHandler {
+	return &AuthHandler{
+		ClientRepo:   clientRepo,
+		TokenService: tokenService,
+		AuthService:  authService,
+	}
 }
 
 type RegisterRequest struct {
@@ -71,34 +41,21 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		http.Error(w, "server error", http.StatusInternalServerError)
-		return
-	}
-
-	var userID string
-	err = h.DB.QueryRow(
-		context.Background(),
-		"INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id",
-		req.Email, string(hash),
-	).Scan(&userID)
+	user, err := h.AuthService.Register(r.Context(), req.Email, req.Password)
 
 	if err != nil {
-		if pgErr, ok := err.(*pgconn.PgError); ok {
-			if pgErr.Code == "23505" { // unique violation
-				http.Error(w, "email already exists", http.StatusConflict)
-				return
-			}
+		if errors.Is(err, service.ErrEmailAlreadyExists) {
+			http.Error(w, "email already exists", http.StatusConflict)
+			return
 		}
-		log.Println("insert error:", err)
+		log.Printf("error registering user: %v", err)
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"id": userID, "email": req.Email, "role": "viewer"})
+	json.NewEncoder(w).Encode(map[string]string{"id": user.ID, "email": user.Email, "role": user.Role})
 }
 
 type LoginRequest struct {
@@ -113,25 +70,13 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var user models.User
-	err := h.DB.QueryRow(
-		context.Background(),
-		"SELECT id, email, password_hash, role FROM users WHERE email = $1",
-		req.Email,
-	).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.Role)
-
+	token, err := h.AuthService.Login(r.Context(), req.Email, req.Password)
 	if err != nil {
-		http.Error(w, "no user with that email exists", http.StatusUnauthorized)
-		return
-	}
-
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
-		http.Error(w, "wrong password", http.StatusUnauthorized)
-		return
-	}
-
-	token, err := generateJWT(user)
-	if err != nil {
+		if errors.Is(err, service.ErrInvalidCredentials) {
+			http.Error(w, "invalid credentials", http.StatusUnauthorized)
+			return
+		}
+		log.Printf("login error: %v", err)
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	}
@@ -140,20 +85,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"token": token})
 }
 
-func generateJWT(user models.User) (string, error) {
-	claims := jwt.MapClaims{
-		"sub":   user.ID,
-		"email": user.Email,
-		"role":  user.Role,
-		"iss":   "iam-platform",
-		"exp":   time.Now().Add(24 * time.Hour).Unix(),
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	return token.SignedString(privateKey)
-}
-
-// todo
 func (h *AuthHandler) Token(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	grantType := r.FormValue("grant_type")

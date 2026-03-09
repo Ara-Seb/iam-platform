@@ -26,11 +26,12 @@ func Migrate(conn *pgx.Conn) {
             role VARCHAR(50) NOT NULL DEFAULT 'viewer',
             created_at TIMESTAMP DEFAULT NOW()
         );
-        CREATE TABLE clients (
-            id          UUID PRIMARY KEY,
+        CREATE TABLE IF NOT EXISTS clients (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             secret_hash TEXT,              -- NULL for public clients
             client_type TEXT NOT NULL,     -- 'confidential' or 'public'
-            redirect_uris TEXT[] NOT NULL
+            redirect_uris TEXT[] NOT NULL,
+			created_at TIMESTAMP DEFAULT NOW()
         );
     `)
 	if err != nil {

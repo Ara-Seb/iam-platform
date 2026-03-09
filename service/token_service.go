@@ -5,22 +5,33 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/jackc/pgx/v5"
+	"github.com/google/uuid"
+	"github.com/yourname/iam-platform/keys"
+	"github.com/yourname/iam-platform/models"
 )
 
 type TokenService struct {
-	DB *pgx.Conn
+	keys *keys.Keys
 }
 
-func (s *TokenService) GenerateToken(userID string, role string) (string, error) {
+func NewTokenService(keys *keys.Keys) *TokenService {
+	return &TokenService{keys: keys}
+}
+
+func (s *TokenService) GenerateToken(user models.User) (string, error) {
+	now := time.Now()
 	claims := jwt.MapClaims{
-		"user_id": userID,
-		"role":    role,
-		"exp":     time.Now().Add(24 * time.Hour).Unix(),
+		"jti":   uuid.New().String(),
+		"sub":   user.ID,
+		"email": user.Email,
+		"role":  user.Role,
+		"iss":   "iam-platform",
+		"iat":   now.Unix(),
+		"exp":   now.Add(24 * time.Hour).Unix(),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	return token.SignedString(privateKey)
+	return token.SignedString(s.keys.Private)
 }
 
 func (s *TokenService) ValidateToken(tokenStr string) (*jwt.Token, error) {
@@ -28,6 +39,6 @@ func (s *TokenService) ValidateToken(tokenStr string) (*jwt.Token, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
-		return publicKey, nil
+		return s.keys.Public, nil
 	})
 }

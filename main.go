@@ -8,6 +8,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/yourname/iam-platform/db"
 	"github.com/yourname/iam-platform/handler"
+	"github.com/yourname/iam-platform/keys"
+	"github.com/yourname/iam-platform/repository"
+	"github.com/yourname/iam-platform/service"
 )
 
 func main() {
@@ -15,7 +18,16 @@ func main() {
 	defer conn.Close(context.Background())
 	db.Migrate(conn)
 
-	authHandler := &handler.AuthHandler{DB: conn}
+	keys, err := keys.LoadKeys("keys/private.pem", "keys/public.pem")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	userRepo := repository.NewUserRepository(conn)
+	clientRepo := repository.NewClientRepository(conn)
+	tokenService := service.NewTokenService(keys)
+	authService := service.NewAuthService(userRepo, tokenService)
+	authHandler := handler.NewAuthHandler(clientRepo, tokenService, authService)
 
 	r := chi.NewRouter()
 	r.Post("/register", authHandler.Register)
@@ -23,5 +35,7 @@ func main() {
 	r.Post("/token", authHandler.Token)
 
 	log.Println("server running on :8080")
-	http.ListenAndServe(":8080", r)
+	if err := http.ListenAndServe(":8080", r); err != nil {
+		log.Fatal(err)
+	}
 }
