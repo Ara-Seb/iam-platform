@@ -27,12 +27,15 @@ func main() {
 	clientRepo := repository.NewClientRepository(conn)
 	tokenService := service.NewTokenService(keys)
 	authService := service.NewAuthService(userRepo, tokenService)
-	authHandler := handler.NewAuthHandler(clientRepo, tokenService, authService)
+	authHandler := handler.NewAuthHandler(clientRepo, authService)
+	clientService := service.NewClientService(clientRepo)
+	clientHandler := handler.NewClientHandler(clientService)
 
 	r := chi.NewRouter()
 	r.Post("/register", authHandler.Register)
 	r.Post("/login", authHandler.Login)
 	r.Post("/token", authHandler.Token)
+	r.Post("/clients", clientHandler.RegisterClient)
 
 	log.Println("server running on :8080")
 	if err := http.ListenAndServe(":8080", r); err != nil {

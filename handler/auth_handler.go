@@ -11,26 +11,30 @@ import (
 )
 
 type AuthHandler struct {
-	ClientRepo   *repository.ClientRepository
-	TokenService *service.TokenService
-	AuthService  *service.AuthService
+	ClientRepo  *repository.ClientRepository
+	AuthService *service.AuthService
 }
 
-func NewAuthHandler(clientRepo *repository.ClientRepository, tokenService *service.TokenService, authService *service.AuthService) *AuthHandler {
+func NewAuthHandler(clientRepo *repository.ClientRepository, authService *service.AuthService) *AuthHandler {
 	return &AuthHandler{
-		ClientRepo:   clientRepo,
-		TokenService: tokenService,
-		AuthService:  authService,
+		ClientRepo:  clientRepo,
+		AuthService: authService,
 	}
 }
 
-type RegisterRequest struct {
+type RegisterUserRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
 
+type RegisterUserResponse struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+	Role  string `json:"role"`
+}
+
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
-	var req RegisterRequest
+	var req RegisterUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
@@ -55,12 +59,20 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"id": user.ID, "email": user.Email, "role": user.Role})
+	json.NewEncoder(w).Encode(RegisterUserResponse{
+		ID:    user.ID,
+		Email: user.Email,
+		Role:  user.Role,
+	})
 }
 
 type LoginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+}
+
+type LoginResponse struct {
+	Token string `json:"token"`
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -82,7 +94,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"token": token})
+	json.NewEncoder(w).Encode(LoginResponse{Token: token})
 }
 
 func (h *AuthHandler) Token(w http.ResponseWriter, r *http.Request) {
