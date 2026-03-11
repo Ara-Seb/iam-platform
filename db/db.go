@@ -3,12 +3,13 @@ package db
 import (
 	"context"
 	"log"
+	"os"
 
 	"github.com/jackc/pgx/v5"
 )
 
 func Connect() *pgx.Conn {
-	conn, err := pgx.Connect(context.Background(), "host=127.0.0.1 port=5432 user=postgres password=secret dbname=iam sslmode=disable")
+	conn, err := pgx.Connect(context.Background(), os.Getenv("DATABASE_URL"))
 	if err != nil {
 		log.Fatal("could not connect to database:", err)
 	}
@@ -33,6 +34,16 @@ func Migrate(conn *pgx.Conn) {
             redirect_uris TEXT[] NOT NULL,
 			created_at TIMESTAMP DEFAULT NOW()
         );
+		CREATE TABLE IF NOT EXISTS authorization_codes (
+    		code        TEXT PRIMARY KEY,
+    		client_id   UUID NOT NULL REFERENCES clients(id),
+    		user_id     UUID NOT NULL REFERENCES users(id),
+    		redirect_uri TEXT NOT NULL,
+    		scope       TEXT,
+    		expires_at  TIMESTAMP NOT NULL,
+    		used        BOOLEAN NOT NULL DEFAULT FALSE,
+    		created_at  TIMESTAMP DEFAULT NOW()
+		);
     `)
 	if err != nil {
 		log.Fatal("migration failed:", err)

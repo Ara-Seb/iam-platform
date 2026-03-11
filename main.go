@@ -4,8 +4,10 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/joho/godotenv"
 	"github.com/yourname/iam-platform/db"
 	"github.com/yourname/iam-platform/handler"
 	"github.com/yourname/iam-platform/keys"
@@ -14,6 +16,9 @@ import (
 )
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Fatal("error loading .env file")
+	}
 	conn := db.Connect()
 	defer conn.Close(context.Background())
 	db.Migrate(conn)
@@ -37,8 +42,9 @@ func main() {
 	r.Post("/token", authHandler.Token)
 	r.Post("/clients", clientHandler.RegisterClient)
 
-	log.Println("server running on :8080")
-	if err := http.ListenAndServe(":8080", r); err != nil {
+	port := os.Getenv("PORT")
+	log.Println("server running on :" + port)
+	if err := http.ListenAndServe(":"+port, r); err != nil {
 		log.Fatal(err)
 	}
 }
