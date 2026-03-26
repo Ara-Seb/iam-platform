@@ -95,3 +95,18 @@ func (h *ClientHandler) GetClient(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:    client.CreatedAt,
 	})
 }
+
+func (h *ClientHandler) DeleteClient(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	err := h.ClientService.DeleteClient(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			http.Error(w, "client not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to delete client", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

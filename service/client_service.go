@@ -48,3 +48,7 @@ func (s *ClientService) RegisterClient(ctx context.Context, clientType models.Cl
 func (s *ClientService) GetClientByID(ctx context.Context, id string) (*models.Client, error) {
 	return s.ClientRepo.FindByID(ctx, id)
 }
+
+func (s *ClientService) DeleteClient(ctx context.Context, id string) error {
+	return s.ClientRepo.Delete(ctx, id)
+}

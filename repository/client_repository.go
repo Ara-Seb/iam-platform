@@ -40,3 +40,17 @@ func (r *ClientRepository) FindByID(ctx context.Context, id string) (*models.Cli
 	}
 	return &client, nil
 }
+
+func (r *ClientRepository) Delete(ctx context.Context, id string) error {
+	cmdTag, err := r.DB.Exec(ctx, `
+		DELETE FROM clients
+		WHERE id = $1
+	`, id)
+	if err != nil {
+		return err
+	}
+	if cmdTag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
