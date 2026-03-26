@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/yourname/iam-platform/models"
@@ -32,6 +33,9 @@ func (r *ClientRepository) FindByID(ctx context.Context, id string) (*models.Cli
 		WHERE id = $1
 	`, id).Scan(&client.ID, &client.SecretHash, &client.ClientType, &client.RedirectURIs, &client.CreatedAt)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
 		return nil, err
 	}
 	return &client, nil

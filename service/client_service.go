@@ -44,3 +44,7 @@ func (s *ClientService) RegisterClient(ctx context.Context, clientType models.Cl
 	}
 	return client, plaintext, nil
 }
+
+func (s *ClientService) GetClientByID(ctx context.Context, id string) (*models.Client, error) {
+	return s.ClientRepo.FindByID(ctx, id)
+}

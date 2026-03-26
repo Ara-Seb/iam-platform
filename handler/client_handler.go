@@ -2,9 +2,13 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/yourname/iam-platform/models"
+	"github.com/yourname/iam-platform/repository"
 	"github.com/yourname/iam-platform/service"
 )
 
@@ -61,5 +65,33 @@ func (h *ClientHandler) RegisterClient(w http.ResponseWriter, r *http.Request) {
 		ClientType:   client.ClientType,
 		RedirectURIs: client.RedirectURIs,
 		Secret:       secret,
+	})
+}
+
+type GetClientResponse struct {
+	ID           string            `json:"id"`
+	ClientType   models.ClientType `json:"client_type"`
+	RedirectURIs []string          `json:"redirect_uris"`
+	CreatedAt    time.Time         `json:"created_at"`
+}
+
+func (h *ClientHandler) GetClient(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	client, err := h.ClientService.GetClientByID(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			http.Error(w, "client not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to get client", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(GetClientResponse{
+		ID:           client.ID,
+		ClientType:   client.ClientType,
+		RedirectURIs: client.RedirectURIs,
+		CreatedAt:    client.CreatedAt,
 	})
 }
