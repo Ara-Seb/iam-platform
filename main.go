@@ -41,6 +41,9 @@ func main() {
 	r.Post("/login", authHandler.Login)
 	r.Post("/token", authHandler.Token)
 	r.Post("/clients", clientHandler.RegisterClient)
+	r.Get("/clients/{id}", clientHandler.GetClient)
+	r.Delete("/clients/{id}", clientHandler.DeleteClient)
+	r.Patch("/clients/{id}", clientHandler.UpdateClient)
 
 	port := os.Getenv("PORT")
 	log.Println("server running on :" + port)

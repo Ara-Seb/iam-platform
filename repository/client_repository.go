@@ -54,3 +54,18 @@ func (r *ClientRepository) Delete(ctx context.Context, id string) error {
 	}
 	return nil
 }
+
+func (r *ClientRepository) Update(ctx context.Context, id string, redirectURIs []string) error {
+	cmdTag, err := r.DB.Exec(ctx, `
+		UPDATE clients
+		SET redirect_uris = $1
+		WHERE id = $2
+	`, redirectURIs, id)
+	if err != nil {
+		return err
+	}
+	if cmdTag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}

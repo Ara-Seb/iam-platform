@@ -52,3 +52,7 @@ func (s *ClientService) GetClientByID(ctx context.Context, id string) (*models.C
 func (s *ClientService) DeleteClient(ctx context.Context, id string) error {
 	return s.ClientRepo.Delete(ctx, id)
 }
+
+func (s *ClientService) UpdateClient(ctx context.Context, id string, redirectURIs []string) error {
+	return s.ClientRepo.Update(ctx, id, redirectURIs)
+}

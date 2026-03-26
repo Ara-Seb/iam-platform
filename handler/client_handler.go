@@ -110,3 +110,34 @@ func (h *ClientHandler) DeleteClient(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+type UpdateClientRequest struct {
+	RedirectURIs []string `json:"redirect_uris"`
+}
+
+func (h *ClientHandler) UpdateClient(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	var req UpdateClientRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.RedirectURIs) == 0 {
+		http.Error(w, "at least one redirect URI required", http.StatusBadRequest)
+		return
+	}
+
+	err := h.ClientService.UpdateClient(r.Context(), id, req.RedirectURIs)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			http.Error(w, "client not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to update client", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
