@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/yourname/iam-platform/models"
 	"github.com/yourname/iam-platform/repository"
 	"github.com/yourname/iam-platform/service"
@@ -31,6 +32,7 @@ type RegisterClientResponse struct {
 	ID           string            `json:"id"`
 	ClientType   models.ClientType `json:"client_type"`
 	RedirectURIs []string          `json:"redirect_uris"`
+	OwnerID      string            `json:"owner_id"`
 	Secret       string            `json:"secret,omitempty"`
 }
 
@@ -52,7 +54,18 @@ func (h *ClientHandler) RegisterClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, secret, err := h.ClientService.RegisterClient(r.Context(), clientType, req.RedirectURIs)
+	claims, ok := r.Context().Value(claimsKey).(jwt.MapClaims)
+	if !ok {
+		http.Error(w, "claims not found in context", http.StatusUnauthorized)
+		return
+	}
+	ownerID, ok := claims["sub"].(string)
+	if !ok || ownerID == "" {
+		http.Error(w, "invalid token claims", http.StatusUnauthorized)
+		return
+	}
+
+	client, secret, err := h.ClientService.RegisterClient(r.Context(), clientType, req.RedirectURIs, ownerID)
 	if err != nil {
 		http.Error(w, "failed to register client", http.StatusInternalServerError)
 		return
@@ -64,6 +77,7 @@ func (h *ClientHandler) RegisterClient(w http.ResponseWriter, r *http.Request) {
 		ID:           client.ID,
 		ClientType:   client.ClientType,
 		RedirectURIs: client.RedirectURIs,
+		OwnerID:      client.OwnerID,
 		Secret:       secret,
 	})
 }

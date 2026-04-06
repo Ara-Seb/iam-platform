@@ -18,20 +18,20 @@ func NewClientRepository(db *pgx.Conn) *ClientRepository {
 
 func (r *ClientRepository) Create(ctx context.Context, client *models.Client) error {
 	err := r.DB.QueryRow(ctx, `
-		INSERT INTO clients (client_type, secret_hash, redirect_uris)
-		VALUES ($1, $2, $3)
+		INSERT INTO clients (client_type, secret_hash, redirect_uris, owner_id)
+		VALUES ($1, $2, $3, $4)
 		RETURNING id, created_at
-	`, client.ClientType, client.SecretHash, client.RedirectURIs).Scan(&client.ID, &client.CreatedAt)
+	`, client.ClientType, client.SecretHash, client.RedirectURIs, client.OwnerID).Scan(&client.ID, &client.CreatedAt)
 	return err
 }
 
 func (r *ClientRepository) FindByID(ctx context.Context, id string) (*models.Client, error) {
 	var client models.Client
 	err := r.DB.QueryRow(ctx, `
-		SELECT id, secret_hash, client_type, redirect_uris, created_at
+		SELECT id, secret_hash, client_type, redirect_uris, owner_id, created_at
 		FROM clients
 		WHERE id = $1
-	`, id).Scan(&client.ID, &client.SecretHash, &client.ClientType, &client.RedirectURIs, &client.CreatedAt)
+	`, id).Scan(&client.ID, &client.SecretHash, &client.ClientType, &client.RedirectURIs, &client.OwnerID, &client.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound

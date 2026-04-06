@@ -32,6 +32,7 @@ func Migrate(conn *pgx.Conn) {
             secret_hash TEXT,              -- NULL for public clients
             client_type TEXT NOT NULL,     -- 'confidential' or 'public'
             redirect_uris TEXT[] NOT NULL,
+			owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 			created_at TIMESTAMP DEFAULT NOW()
         );
 		CREATE TABLE IF NOT EXISTS authorization_codes (

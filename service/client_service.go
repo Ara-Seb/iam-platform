@@ -21,7 +21,7 @@ func NewClientService(clientRepo *repository.ClientRepository) *ClientService {
 	}
 }
 
-func (s *ClientService) RegisterClient(ctx context.Context, clientType models.ClientType, redirectURIs []string) (*models.Client, string, error) {
+func (s *ClientService) RegisterClient(ctx context.Context, clientType models.ClientType, redirectURIs []string, ownerID string) (*models.Client, string, error) {
 	var hash []byte
 	var plaintext string
 	if clientType == models.ClientTypeConfidential {
@@ -37,7 +37,7 @@ func (s *ClientService) RegisterClient(ctx context.Context, clientType models.Cl
 		}
 	}
 
-	client := &models.Client{SecretHash: string(hash), ClientType: clientType, RedirectURIs: redirectURIs}
+	client := &models.Client{SecretHash: string(hash), ClientType: clientType, RedirectURIs: redirectURIs, OwnerID: ownerID}
 	err := s.ClientRepo.Create(ctx, client)
 	if err != nil {
 		return nil, "", err

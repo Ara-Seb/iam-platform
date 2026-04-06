@@ -14,5 +14,6 @@ type Client struct {
 	SecretHash   string     `json:"-"`
 	ClientType   ClientType `json:"client_type"`
 	RedirectURIs []string   `json:"redirect_uris"`
+	OwnerID      string     `json:"owner_id"`
 	CreatedAt    time.Time  `json:"created_at"`
 }
