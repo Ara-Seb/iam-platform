@@ -40,10 +40,14 @@ func main() {
 	r.Post("/register", authHandler.Register)
 	r.Post("/login", authHandler.Login)
 	r.Post("/token", authHandler.Token)
-	r.Post("/clients", clientHandler.RegisterClient)
-	r.Get("/clients/{id}", clientHandler.GetClient)
-	r.Delete("/clients/{id}", clientHandler.DeleteClient)
-	r.Patch("/clients/{id}", clientHandler.UpdateClient)
+
+	r.Route("/clients", func(r chi.Router) {
+		r.Use(handler.AuthMiddleware(tokenService))
+		r.With(handler.RequireAdmin).Post("/", clientHandler.RegisterClient)
+		r.Get("/{id}", clientHandler.GetClient)
+		r.Delete("/{id}", clientHandler.DeleteClient)
+		r.Patch("/{id}", clientHandler.UpdateClient)
+	})
 
 	port := os.Getenv("PORT")
 	log.Println("server running on :" + port)
