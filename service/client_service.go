@@ -7,15 +7,14 @@ import (
 	"fmt"
 
 	"github.com/yourname/iam-platform/models"
-	"github.com/yourname/iam-platform/repository"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type ClientService struct {
-	ClientRepo *repository.ClientRepository
+	ClientRepo ClientRepository
 }
 
-func NewClientService(clientRepo *repository.ClientRepository) *ClientService {
+func NewClientService(clientRepo ClientRepository) *ClientService {
 	return &ClientService{
 		ClientRepo: clientRepo,
 	}
