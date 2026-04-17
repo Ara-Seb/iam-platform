@@ -30,7 +30,7 @@ func TestLogin_UserNotFound(t *testing.T) {
 	}
 	service := NewAuthService(mockRepo, nil)
 
-	_, err := service.Login(context.Background(), "nonexistent@example.com", "password")
+	_, _, err := service.Login(context.Background(), "nonexistent@example.com", "password")
 	if !errors.Is(err, ErrInvalidCredentials) {
 		t.Errorf("expected ErrInvalidCredentials, got %v", err)
 	}

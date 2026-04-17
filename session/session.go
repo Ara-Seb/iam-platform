@@ -12,7 +12,6 @@ type SessionStore struct {
 }
 
 type AuthorizationSession struct {
-	UserID      string `json:"user_id"`
 	ClientID    string `json:"client_id"`
 	RedirectURI string `json:"redirect_uri"`
 	Scope       string `json:"scope"`

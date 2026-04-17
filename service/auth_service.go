@@ -10,6 +10,11 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+type UserRepository interface {
+	Create(ctx context.Context, user *models.User) error
+	FindByEmail(ctx context.Context, email string) (*models.User, error)
+}
+
 type AuthService struct {
 	UserRepo     UserRepository
 	TokenService *TokenService
@@ -40,17 +45,18 @@ func (s *AuthService) Register(ctx context.Context, email string, password strin
 	return &user, nil
 }
 
-func (s *AuthService) Login(ctx context.Context, email string, password string) (string, error) {
+func (s *AuthService) Login(ctx context.Context, email string, password string) (string, *models.User, error) {
 	user, err := s.UserRepo.FindByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			return "", ErrInvalidCredentials
+			return "", nil, ErrInvalidCredentials
 		}
-		return "", fmt.Errorf("server error: %w", err)
+		return "", nil, fmt.Errorf("server error: %w", err)
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		return "", ErrInvalidCredentials
+		return "", nil, ErrInvalidCredentials
 	}
-	return s.TokenService.GenerateToken(*user)
+	token, err := s.TokenService.GenerateToken(*user)
+	return token, user, err
 }

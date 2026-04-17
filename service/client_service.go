@@ -2,13 +2,19 @@ package service
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"fmt"
 
+	"github.com/yourname/iam-platform/crypto"
 	"github.com/yourname/iam-platform/models"
 	"golang.org/x/crypto/bcrypt"
 )
+
+type ClientRepository interface {
+	Create(ctx context.Context, client *models.Client) error
+	FindByID(ctx context.Context, id string) (*models.Client, error)
+	Delete(ctx context.Context, id string) error
+	Update(ctx context.Context, id string, redirectURIs []string) error
+}
 
 type ClientService struct {
 	ClientRepo ClientRepository
@@ -22,15 +28,13 @@ func NewClientService(clientRepo ClientRepository) *ClientService {
 
 func (s *ClientService) RegisterClient(ctx context.Context, clientType models.ClientType, redirectURIs []string, ownerID string) (*models.Client, string, error) {
 	var hash []byte
-	var plaintext string
+	var secret string
 	if clientType == models.ClientTypeConfidential {
-		secret := make([]byte, 32)
-		_, err := rand.Read(secret)
+		secret, err := crypto.GenerateRandomToken()
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to generate secret: %w", err)
 		}
-		plaintext = base64.URLEncoding.EncodeToString(secret)
-		hash, err = bcrypt.GenerateFromPassword([]byte(plaintext), bcrypt.DefaultCost)
+		hash, err = bcrypt.GenerateFromPassword([]byte(secret), bcrypt.DefaultCost)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to hash secret: %w", err)
 		}
@@ -41,7 +45,7 @@ func (s *ClientService) RegisterClient(ctx context.Context, clientType models.Cl
 	if err != nil {
 		return nil, "", err
 	}
-	return client, plaintext, nil
+	return client, secret, nil
 }
 
 func (s *ClientService) GetClientByID(ctx context.Context, id string) (*models.Client, error) {

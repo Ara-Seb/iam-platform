@@ -6,19 +6,31 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/gorilla/schema"
 	"github.com/yourname/iam-platform/repository"
 	"github.com/yourname/iam-platform/service"
+	"github.com/yourname/iam-platform/session"
+	"github.com/yourname/iam-platform/store"
+	"github.com/yourname/iam-platform/utils"
 )
 
 type AuthHandler struct {
-	ClientRepo  *repository.ClientRepository
-	AuthService *service.AuthService
+	ClientRepo   *repository.ClientRepository
+	AuthService  *service.AuthService
+	SessionStore *session.SessionStore
+	CodeStore    *store.AuthCodeStore
+	Decoder      *schema.Decoder
 }
 
-func NewAuthHandler(clientRepo *repository.ClientRepository, authService *service.AuthService) *AuthHandler {
+func NewAuthHandler(clientRepo *repository.ClientRepository, authService *service.AuthService, sessionStore *session.SessionStore, codeStore *store.AuthCodeStore) *AuthHandler {
+	decoder := schema.NewDecoder()
+	decoder.IgnoreUnknownKeys(true)
 	return &AuthHandler{
-		ClientRepo:  clientRepo,
-		AuthService: authService,
+		ClientRepo:   clientRepo,
+		AuthService:  authService,
+		SessionStore: sessionStore,
+		CodeStore:    codeStore,
+		Decoder:      decoder,
 	}
 }
 
@@ -75,14 +87,14 @@ type LoginResponse struct {
 	Token string `json:"token"`
 }
 
-func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+func (h *AuthHandler) LoginPost(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 
-	token, err := h.AuthService.Login(r.Context(), req.Email, req.Password)
+	token, user, err := h.AuthService.Login(r.Context(), req.Email, req.Password)
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidCredentials) {
 			http.Error(w, "invalid credentials", http.StatusUnauthorized)
@@ -93,8 +105,71 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cookie, _ := h.SessionStore.Get(r)
+	if cookie != nil {
+		code, err := h.CodeStore.CreateCode(cookie.ClientID, user.ID, cookie.RedirectURI, cookie.Scope, cookie.State)
+		if err != nil {
+			log.Printf("failed to create authorization code: %v", err)
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		redirectURL := utils.BuildRedirectURI(cookie.RedirectURI, code.Code, cookie.State)
+		h.SessionStore.Clear(w)
+		http.Redirect(w, r, redirectURL, http.StatusFound)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(LoginResponse{Token: token})
+}
+
+func (h *AuthHandler) LoginGet(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "static/login.html")
+}
+
+type AuthorizeRequest struct {
+	ResponseType string `form:"response_type"`
+	ClientId     string `form:"client_id"`
+	RedirectURI  string `form:"redirect_uri"`
+	Scope        string `form:"scope"`
+	State        string `form:"state"`
+}
+
+func (h *AuthHandler) Authorize(w http.ResponseWriter, r *http.Request) {
+	var req AuthorizeRequest
+	if err := h.Decoder.Decode(&req, r.URL.Query()); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	if req.ClientId == "" || req.RedirectURI == "" || req.Scope == "" || req.State == "" {
+		http.Error(w, "missing required parameters", http.StatusBadRequest)
+		return
+	}
+	if req.ResponseType != "code" {
+		http.Error(w, "unsupported response_type", http.StatusBadRequest)
+		return
+	}
+	client, err := h.ClientRepo.FindByID(r.Context(), req.ClientId)
+	if err != nil {
+		http.Error(w, "unrecognized client_id", http.StatusUnauthorized)
+		return
+	}
+	if !utils.Contains(client.RedirectURIs, req.RedirectURI) {
+		http.Error(w, "invalid redirect_uri", http.StatusUnauthorized)
+		return
+	}
+	session := &session.AuthorizationSession{
+		ClientID:    req.ClientId,
+		RedirectURI: req.RedirectURI,
+		Scope:       req.Scope,
+		State:       req.State,
+	}
+	err = h.SessionStore.Set(w, session)
+	if err != nil {
+		http.Error(w, "server error", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/login", http.StatusFound)
 }
 
 func (h *AuthHandler) Token(w http.ResponseWriter, r *http.Request) {

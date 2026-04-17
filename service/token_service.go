@@ -31,7 +31,11 @@ func (s *TokenService) GenerateToken(user models.User) (string, error) {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	return token.SignedString(s.keys.Private)
+	signed, err := token.SignedString(s.keys.Private)
+	if err != nil {
+		return "", fmt.Errorf("failed to sign token: %w", err)
+	}
+	return signed, nil
 }
 
 func (s *TokenService) ValidateToken(tokenStr string) (*jwt.Token, error) {
