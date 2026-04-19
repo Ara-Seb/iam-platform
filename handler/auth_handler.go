@@ -1,36 +1,56 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
 
 	"github.com/gorilla/schema"
-	"github.com/yourname/iam-platform/repository"
+	"github.com/yourname/iam-platform/models"
 	"github.com/yourname/iam-platform/service"
 	"github.com/yourname/iam-platform/session"
 	"github.com/yourname/iam-platform/store"
 	"github.com/yourname/iam-platform/utils"
 )
 
-type AuthHandler struct {
-	ClientRepo   *repository.ClientRepository
-	AuthService  *service.AuthService
-	SessionStore *session.SessionStore
-	CodeStore    *store.AuthCodeStore
-	Decoder      *schema.Decoder
+type ClientService interface {
+	GetClientByID(ctx context.Context, id string) (*models.Client, error)
 }
 
-func NewAuthHandler(clientRepo *repository.ClientRepository, authService *service.AuthService, sessionStore *session.SessionStore, codeStore *store.AuthCodeStore) *AuthHandler {
+type AuthService interface {
+	Register(ctx context.Context, email, password string) (*models.User, error)
+	Login(ctx context.Context, email, password string) (string, *models.User, error)
+}
+
+type SessionStore interface {
+	Set(w http.ResponseWriter, session *session.AuthorizationSession) error
+	Get(r *http.Request) (*session.AuthorizationSession, error)
+	Clear(w http.ResponseWriter)
+}
+
+type CodeStore interface {
+	CreateCode(clientID, userID, redirectURI, scope, state string) (*store.AuthorizationCode, error)
+}
+
+type AuthHandler struct {
+	ClientService ClientService
+	AuthService   AuthService
+	SessionStore  SessionStore
+	CodeStore     CodeStore
+	Decoder       *schema.Decoder
+}
+
+func NewAuthHandler(clientService ClientService, authService AuthService, sessionStore SessionStore, codeStore CodeStore) *AuthHandler {
 	decoder := schema.NewDecoder()
 	decoder.IgnoreUnknownKeys(true)
 	return &AuthHandler{
-		ClientRepo:   clientRepo,
-		AuthService:  authService,
-		SessionStore: sessionStore,
-		CodeStore:    codeStore,
-		Decoder:      decoder,
+		ClientService: clientService,
+		AuthService:   authService,
+		SessionStore:  sessionStore,
+		CodeStore:     codeStore,
+		Decoder:       decoder,
 	}
 }
 
@@ -128,11 +148,11 @@ func (h *AuthHandler) LoginGet(w http.ResponseWriter, r *http.Request) {
 }
 
 type AuthorizeRequest struct {
-	ResponseType string `form:"response_type"`
-	ClientId     string `form:"client_id"`
-	RedirectURI  string `form:"redirect_uri"`
-	Scope        string `form:"scope"`
-	State        string `form:"state"`
+	ResponseType string `schema:"response_type"`
+	ClientId     string `schema:"client_id"`
+	RedirectURI  string `schema:"redirect_uri"`
+	Scope        string `schema:"scope"`
+	State        string `schema:"state"`
 }
 
 func (h *AuthHandler) Authorize(w http.ResponseWriter, r *http.Request) {
@@ -149,7 +169,7 @@ func (h *AuthHandler) Authorize(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unsupported response_type", http.StatusBadRequest)
 		return
 	}
-	client, err := h.ClientRepo.FindByID(r.Context(), req.ClientId)
+	client, err := h.ClientService.GetClientByID(r.Context(), req.ClientId)
 	if err != nil {
 		http.Error(w, "unrecognized client_id", http.StatusUnauthorized)
 		return

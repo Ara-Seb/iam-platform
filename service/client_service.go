@@ -30,7 +30,8 @@ func (s *ClientService) RegisterClient(ctx context.Context, clientType models.Cl
 	var hash []byte
 	var secret string
 	if clientType == models.ClientTypeConfidential {
-		secret, err := crypto.GenerateRandomToken()
+		var err error
+		secret, err = crypto.GenerateRandomToken()
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to generate secret: %w", err)
 		}
