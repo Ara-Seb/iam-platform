@@ -92,6 +92,7 @@ func (m *MockSessionStore) Clear(w http.ResponseWriter) {
 
 type MockCodeStore struct {
 	CreateCodeFunc func(clientID, userID, redirectURI, scope, state string) (*store.AuthorizationCode, error)
+	VerifyCodeFunc func(code string) (*store.AuthorizationCode, error)
 }
 
 func (m *MockCodeStore) CreateCode(clientID, userID, redirectURI, scope, state string) (*store.AuthorizationCode, error) {
@@ -99,4 +100,11 @@ func (m *MockCodeStore) CreateCode(clientID, userID, redirectURI, scope, state s
 		return nil, nil
 	}
 	return m.CreateCodeFunc(clientID, userID, redirectURI, scope, state)
+}
+
+func (m *MockCodeStore) VerifyCode(code string) (*store.AuthorizationCode, error) {
+	if m.VerifyCodeFunc == nil {
+		return nil, nil
+	}
+	return m.VerifyCodeFunc(code)
 }

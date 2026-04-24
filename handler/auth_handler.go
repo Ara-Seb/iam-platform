@@ -32,6 +32,7 @@ type SessionStore interface {
 
 type CodeStore interface {
 	CreateCode(clientID, userID, redirectURI, scope, state string) (*store.AuthorizationCode, error)
+	VerifyCode(code string) (*store.AuthorizationCode, error)
 }
 
 type AuthHandler struct {

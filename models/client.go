@@ -11,7 +11,6 @@ const (
 
 type Client struct {
 	ID           string     `json:"id"`
-	SecretHash   string     `json:"-"`
 	ClientType   ClientType `json:"client_type"`
 	RedirectURIs []string   `json:"redirect_uris"`
 	OwnerID      string     `json:"owner_id"`

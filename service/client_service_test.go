@@ -10,39 +10,41 @@ import (
 )
 
 func TestRegisterClient_Confidential(t *testing.T) {
-	service := NewClientService(&MockClientRepository{})
+	mockClientRepo := &MockClientRepository{}
+	service := NewClientService(mockClientRepo)
 
-	client, secret, err := service.RegisterClient(context.Background(), models.ClientTypeConfidential, []string{"https://example.com/callback"}, "owner-id")
+	_, secret, err := service.RegisterClient(context.Background(), models.ClientTypeConfidential, []string{"https://example.com/callback"}, "owner-id")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if secret == "" {
 		t.Error("expected secret to be generated for confidential client")
 	}
-	err = bcrypt.CompareHashAndPassword([]byte(client.SecretHash), []byte(secret))
+	err = bcrypt.CompareHashAndPassword([]byte(mockClientRepo.SecretHash), []byte(secret))
 	if err != nil {
 		t.Error("expected secret to match stored hash")
 	}
 }
 
 func TestRegisterClient_Public(t *testing.T) {
-	service := NewClientService(&MockClientRepository{})
+	mockClientRepo := &MockClientRepository{}
+	service := NewClientService(mockClientRepo)
 
-	client, secret, err := service.RegisterClient(context.Background(), models.ClientTypePublic, []string{"https://example.com/callback"}, "owner-id")
+	_, secret, err := service.RegisterClient(context.Background(), models.ClientTypePublic, []string{"https://example.com/callback"}, "owner-id")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if secret != "" {
 		t.Error("expected no secret to be generated for public client")
 	}
-	if client.SecretHash != "" {
+	if mockClientRepo.SecretHash != "" {
 		t.Error("expected hashed secret to be empty for public client")
 	}
 }
 
 func TestRepoFailure(t *testing.T) {
 	mockRepo := &MockClientRepository{
-		CreateFunc: func(ctx context.Context, client *models.Client) error {
+		CreateFunc: func(ctx context.Context, client *models.Client, secretHash string) error {
 			return fmt.Errorf("db error")
 		},
 	}

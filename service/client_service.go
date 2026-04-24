@@ -10,7 +10,7 @@ import (
 )
 
 type ClientRepository interface {
-	Create(ctx context.Context, client *models.Client) error
+	Create(ctx context.Context, client *models.Client, secretHash string) error
 	FindByID(ctx context.Context, id string) (*models.Client, error)
 	Delete(ctx context.Context, id string) error
 	Update(ctx context.Context, id string, redirectURIs []string) error
@@ -41,8 +41,8 @@ func (s *ClientService) RegisterClient(ctx context.Context, clientType models.Cl
 		}
 	}
 
-	client := &models.Client{SecretHash: string(hash), ClientType: clientType, RedirectURIs: redirectURIs, OwnerID: ownerID}
-	err := s.ClientRepo.Create(ctx, client)
+	client := &models.Client{ClientType: clientType, RedirectURIs: redirectURIs, OwnerID: ownerID}
+	err := s.ClientRepo.Create(ctx, client, string(hash))
 	if err != nil {
 		return nil, "", err
 	}

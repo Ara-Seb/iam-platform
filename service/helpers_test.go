@@ -7,17 +7,19 @@ import (
 )
 
 type MockClientRepository struct {
-	CreateFunc   func(ctx context.Context, client *models.Client) error
+	SecretHash   string
+	CreateFunc   func(ctx context.Context, client *models.Client, secretHash string) error
 	FindByIDFunc func(ctx context.Context, id string) (*models.Client, error)
 	DeleteFunc   func(ctx context.Context, id string) error
 	UpdateFunc   func(ctx context.Context, id string, redirectURIs []string) error
 }
 
-func (m *MockClientRepository) Create(ctx context.Context, client *models.Client) error {
+func (m *MockClientRepository) Create(ctx context.Context, client *models.Client, secretHash string) error {
+	m.SecretHash = secretHash
 	if m.CreateFunc == nil {
 		return nil
 	}
-	return m.CreateFunc(ctx, client)
+	return m.CreateFunc(ctx, client, secretHash)
 }
 
 func (m *MockClientRepository) FindByID(ctx context.Context, id string) (*models.Client, error) {
