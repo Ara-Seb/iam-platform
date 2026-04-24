@@ -69,3 +69,19 @@ func (r *ClientRepository) Update(ctx context.Context, id string, redirectURIs [
 	}
 	return nil
 }
+
+func (r *ClientRepository) GetSecretHashByID(ctx context.Context, id string) (string, error) {
+	var secretHash string
+	err := r.DB.QueryRow(ctx, `
+		SELECT secret_hash
+		FROM clients
+		WHERE id = $1
+	`, id).Scan(&secretHash)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		return "", err
+	}
+	return secretHash, nil
+}

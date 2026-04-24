@@ -7,11 +7,12 @@ import (
 )
 
 type MockClientRepository struct {
-	SecretHash   string
-	CreateFunc   func(ctx context.Context, client *models.Client, secretHash string) error
-	FindByIDFunc func(ctx context.Context, id string) (*models.Client, error)
-	DeleteFunc   func(ctx context.Context, id string) error
-	UpdateFunc   func(ctx context.Context, id string, redirectURIs []string) error
+	SecretHash            string
+	CreateFunc            func(ctx context.Context, client *models.Client, secretHash string) error
+	FindByIDFunc          func(ctx context.Context, id string) (*models.Client, error)
+	DeleteFunc            func(ctx context.Context, id string) error
+	UpdateFunc            func(ctx context.Context, id string, redirectURIs []string) error
+	GetSecretHashByIDFunc func(ctx context.Context, id string) (string, error)
 }
 
 func (m *MockClientRepository) Create(ctx context.Context, client *models.Client, secretHash string) error {
@@ -46,6 +47,7 @@ func (m *MockClientRepository) Update(ctx context.Context, id string, redirectUR
 type MockUserRepository struct {
 	CreateFunc      func(ctx context.Context, user *models.User) error
 	FindByEmailFunc func(ctx context.Context, email string) (*models.User, error)
+	FindByIDFunc    func(ctx context.Context, id string) (*models.User, error)
 }
 
 func (m *MockUserRepository) Create(ctx context.Context, user *models.User) error {
@@ -60,4 +62,18 @@ func (m *MockUserRepository) FindByEmail(ctx context.Context, email string) (*mo
 		return nil, nil
 	}
 	return m.FindByEmailFunc(ctx, email)
+}
+
+func (m *MockUserRepository) FindByID(ctx context.Context, id string) (*models.User, error) {
+	if m.FindByIDFunc == nil {
+		return nil, nil
+	}
+	return m.FindByIDFunc(ctx, id)
+}
+
+func (m *MockClientRepository) GetSecretHashByID(ctx context.Context, id string) (string, error) {
+	if m.GetSecretHashByIDFunc == nil {
+		return "", nil
+	}
+	return m.GetSecretHashByIDFunc(ctx, id)
 }

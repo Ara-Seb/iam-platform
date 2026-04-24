@@ -13,6 +13,7 @@ import (
 type UserRepository interface {
 	Create(ctx context.Context, user *models.User) error
 	FindByEmail(ctx context.Context, email string) (*models.User, error)
+	FindByID(ctx context.Context, id string) (*models.User, error)
 }
 
 type AuthService struct {
@@ -57,6 +58,10 @@ func (s *AuthService) Login(ctx context.Context, email string, password string) 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		return "", nil, ErrInvalidCredentials
 	}
-	token, err := s.TokenService.GenerateToken(*user)
+	token, err := s.TokenService.GenerateToken(user)
 	return token, user, err
+}
+
+func (s *AuthService) GetUserByID(ctx context.Context, id string) (*models.User, error) {
+	return s.UserRepo.FindByID(ctx, id)
 }

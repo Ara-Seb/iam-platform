@@ -22,7 +22,7 @@ func TestGenerate_FailToValidate(t *testing.T) {
 	}
 	service := NewTokenService(keys)
 
-	token, _ := service.GenerateToken(user)
+	token, _ := service.GenerateToken(&user)
 	token = token + "invalid"
 	_, err := service.ValidateToken(token)
 	if err == nil {

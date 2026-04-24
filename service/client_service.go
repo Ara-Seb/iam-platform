@@ -14,6 +14,7 @@ type ClientRepository interface {
 	FindByID(ctx context.Context, id string) (*models.Client, error)
 	Delete(ctx context.Context, id string) error
 	Update(ctx context.Context, id string, redirectURIs []string) error
+	GetSecretHashByID(ctx context.Context, id string) (string, error)
 }
 
 type ClientService struct {
@@ -59,4 +60,16 @@ func (s *ClientService) DeleteClient(ctx context.Context, id string) error {
 
 func (s *ClientService) UpdateClient(ctx context.Context, id string, redirectURIs []string) error {
 	return s.ClientRepo.Update(ctx, id, redirectURIs)
+}
+
+func (s *ClientService) ValidateSecret(ctx context.Context, clientID string, secret string) error {
+	storedHash, err := s.ClientRepo.GetSecretHashByID(ctx, clientID)
+	if err != nil {
+		return err
+	}
+	err = crypto.VerifyHash(storedHash, secret)
+	if err != nil {
+		return fmt.Errorf("invalid secret")
+	}
+	return nil
 }

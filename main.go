@@ -50,7 +50,7 @@ func main() {
 	authService := service.NewAuthService(userRepo, tokenService)
 	authCodeStore := store.NewAuthCodeStore()
 	clientService := service.NewClientService(clientRepo)
-	authHandler := handler.NewAuthHandler(clientService, authService, sessionStore, authCodeStore)
+	authHandler := handler.NewAuthHandler(clientService, authService, sessionStore, authCodeStore, tokenService)
 	clientHandler := handler.NewClientHandler(clientService)
 
 	r := chi.NewRouter()

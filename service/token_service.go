@@ -18,7 +18,7 @@ func NewTokenService(keys *keys.Keys) *TokenService {
 	return &TokenService{keys: keys}
 }
 
-func (s *TokenService) GenerateToken(user models.User) (string, error) {
+func (s *TokenService) GenerateToken(user *models.User) (string, error) {
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"jti":   uuid.New().String(),

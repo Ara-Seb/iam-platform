@@ -17,11 +17,13 @@ import (
 
 type ClientService interface {
 	GetClientByID(ctx context.Context, id string) (*models.Client, error)
+	ValidateSecret(ctx context.Context, clientID string, secret string) error
 }
 
 type AuthService interface {
 	Register(ctx context.Context, email, password string) (*models.User, error)
 	Login(ctx context.Context, email, password string) (string, *models.User, error)
+	GetUserByID(ctx context.Context, id string) (*models.User, error)
 }
 
 type SessionStore interface {
@@ -35,15 +37,20 @@ type CodeStore interface {
 	VerifyCode(code string) (*store.AuthorizationCode, error)
 }
 
+type TokenService interface {
+	GenerateToken(user *models.User) (string, error)
+}
+
 type AuthHandler struct {
 	ClientService ClientService
 	AuthService   AuthService
 	SessionStore  SessionStore
 	CodeStore     CodeStore
+	TokenService  TokenService
 	Decoder       *schema.Decoder
 }
 
-func NewAuthHandler(clientService ClientService, authService AuthService, sessionStore SessionStore, codeStore CodeStore) *AuthHandler {
+func NewAuthHandler(clientService ClientService, authService AuthService, sessionStore SessionStore, codeStore CodeStore, tokenService TokenService) *AuthHandler {
 	decoder := schema.NewDecoder()
 	decoder.IgnoreUnknownKeys(true)
 	return &AuthHandler{
@@ -51,6 +58,7 @@ func NewAuthHandler(clientService ClientService, authService AuthService, sessio
 		AuthService:   authService,
 		SessionStore:  sessionStore,
 		CodeStore:     codeStore,
+		TokenService:  tokenService,
 		Decoder:       decoder,
 	}
 }
@@ -219,8 +227,57 @@ func (h *AuthHandler) handleRefreshToken(w http.ResponseWriter, r *http.Request)
 	panic("unimplemented")
 }
 
+type TokenRequest struct {
+	GrantType    string `schema:"grant_type"`
+	ClientID     string `schema:"client_id"`
+	ClientSecret string `schema:"client_secret"`
+	RedirectURI  string `schema:"redirect_uri"`
+	Code         string `schema:"code"`
+}
+
 func (h *AuthHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Request) {
-	panic("unimplemented")
+	var req TokenRequest
+	if err := h.Decoder.Decode(&req, r.Form); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	client, err := h.ClientService.GetClientByID(r.Context(), req.ClientID)
+	if err != nil {
+		http.Error(w, "unrecognized client_id", http.StatusUnauthorized)
+		return
+	}
+	if client.ClientType == models.ClientTypeConfidential {
+		err = h.ClientService.ValidateSecret(r.Context(), req.ClientID, req.ClientSecret)
+		if err != nil {
+			http.Error(w, "invalid client credentials", http.StatusUnauthorized)
+			return
+		}
+	}
+	code, err := h.CodeStore.VerifyCode(req.Code)
+	if err != nil {
+		http.Error(w, "invalid code", http.StatusUnauthorized)
+		return
+	}
+	if req.ClientID != code.ClientID {
+		http.Error(w, "client_id mismatch", http.StatusUnauthorized)
+		return
+	}
+	if req.RedirectURI != code.RedirectURI {
+		http.Error(w, "redirect_uri mismatch", http.StatusUnauthorized)
+		return
+	}
+	user, err := h.AuthService.GetUserByID(r.Context(), code.UserID)
+	if err != nil {
+		http.Error(w, "user not found", http.StatusUnauthorized)
+		return
+	}
+	token, err := h.TokenService.GenerateToken(user)
+	if err != nil {
+		http.Error(w, "failed to generate token", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(LoginResponse{Token: token})
 }
 
 func (h *AuthHandler) handleClientCredentials(w http.ResponseWriter, r *http.Request) {
