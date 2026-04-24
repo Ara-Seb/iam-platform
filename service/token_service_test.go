@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/yourname/iam-platform/keys"
 	"github.com/yourname/iam-platform/models"
 )
@@ -21,11 +22,8 @@ func TestGenerate_FailToValidate(t *testing.T) {
 		Public:  &privateKey.PublicKey,
 	}
 	service := NewTokenService(keys)
-
 	token, _ := service.GenerateToken(&user)
 	token = token + "invalid"
 	_, err := service.ValidateToken(token)
-	if err == nil {
-		t.Fatalf("token should be invalid: %v", err)
-	}
+	assert.Error(t, err)
 }

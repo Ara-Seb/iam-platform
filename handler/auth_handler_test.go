@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/yourname/iam-platform/models"
 	"github.com/yourname/iam-platform/repository"
 	"github.com/yourname/iam-platform/service"
@@ -23,87 +24,59 @@ func TestRegister_EmailExists(t *testing.T) {
 		},
 	}
 	handler := NewAuthHandler(nil, mockAuthService, nil, nil, nil)
-
 	body := `{"email": "test@example.com", "password": "password123"}`
 	req := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	handler.Register(w, req)
-	res := w.Result()
-	if res.StatusCode != http.StatusConflict {
-		t.Errorf("expected 409 Conflict, got %v", res.StatusCode)
-	}
+	assert.Equal(t, http.StatusConflict, w.Result().StatusCode)
 }
 
 func TestRegister_Success(t *testing.T) {
 	handler := NewAuthHandler(nil, &MockAuthService{}, nil, nil, nil)
-
 	body := `{"email": "test@example.com", "password": "password123"}`
 	req := httptest.NewRequest(http.MethodPost, "/register", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	handler.Register(w, req)
 	res := w.Result()
-	if res.StatusCode != http.StatusCreated {
-		t.Errorf("expected 201 Created, got %v", res.StatusCode)
-	}
+	assert.Equal(t, http.StatusCreated, res.StatusCode)
 	var resp RegisterUserResponse
-	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
-		t.Fatalf("failed to decode response body: %v", err)
-	}
-	if resp.Email != "test@example.com" {
-		t.Errorf("expected email test@example.com, got %v", resp.Email)
-	}
-	if resp.ID != "123" {
-		t.Errorf("expected id 123, got %v", resp.ID)
-	}
+	err := json.NewDecoder(res.Body).Decode(&resp)
+	assert.NoError(t, err)
+	assert.Equal(t, "test@example.com", resp.Email)
+	assert.Equal(t, "123", resp.ID)
 }
 
 func TestAuthorize_MissingResponseType(t *testing.T) {
 	handler := NewAuthHandler(nil, nil, nil, nil, nil)
-
 	reqTarget := "/authorize?client_id=abc123&redirect_uri=https://example.com/callback&scope=openid&state=xyz"
 	req := httptest.NewRequest(http.MethodGet, reqTarget, nil)
 	w := httptest.NewRecorder()
 	handler.Authorize(w, req)
-	res := w.Result()
-	if res.StatusCode != http.StatusBadRequest {
-		t.Errorf("expected 400 Bad Request, got %v", res.StatusCode)
-	}
+	assert.Equal(t, http.StatusBadRequest, w.Result().StatusCode)
 }
 
 func TestAuthorize_InvalidRedirectURI(t *testing.T) {
 	handler := NewAuthHandler(&MockClientService{}, nil, nil, nil, nil)
-
 	reqTarget := "/authorize?response_type=code&client_id=abc123&redirect_uri=https://malicious.com/callback&scope=openid&state=xyz"
 	req := httptest.NewRequest(http.MethodGet, reqTarget, nil)
 	w := httptest.NewRecorder()
 	handler.Authorize(w, req)
-	res := w.Result()
-	if res.StatusCode != http.StatusUnauthorized {
-		t.Errorf("expected 401 Unauthorized, got %v", res.StatusCode)
-	}
+	assert.Equal(t, http.StatusUnauthorized, w.Result().StatusCode)
 }
 
 func TestAuthorize_Success(t *testing.T) {
 	mockSessionStore := &MockSessionStore{}
 	handler := NewAuthHandler(&MockClientService{}, nil, mockSessionStore, nil, nil)
-
 	reqTarget := "/authorize?response_type=code&client_id=abc123&redirect_uri=https://example.com/callback&scope=openid&state=xyz"
 	req := httptest.NewRequest(http.MethodGet, reqTarget, nil)
 	w := httptest.NewRecorder()
 	handler.Authorize(w, req)
-	if !mockSessionStore.SetCalled {
-		t.Error("expected SessionStore.Set to be called")
-	}
 	res := w.Result()
-	if res.StatusCode != http.StatusFound {
-		t.Errorf("expected 302 Found, got %v", res.StatusCode)
-	}
-	location := res.Header.Get("Location")
-	if location != "/login" {
-		t.Errorf("expected redirect to /login, got %v", location)
-	}
+	assert.True(t, mockSessionStore.SetCalled)
+	assert.Equal(t, http.StatusFound, res.StatusCode)
+	assert.Equal(t, "/login", res.Header.Get("Location"))
 }
 
 func TestLoginPost_BadCredentials(t *testing.T) {
@@ -113,16 +86,12 @@ func TestLoginPost_BadCredentials(t *testing.T) {
 		},
 	}
 	handler := NewAuthHandler(nil, mockAuthService, nil, nil, nil)
-
 	body := `{"email": "test@example.com", "password": "password123"}`
 	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	handler.LoginPost(w, req)
-	res := w.Result()
-	if res.StatusCode != http.StatusUnauthorized {
-		t.Errorf("expected 401 Unauthorized, got %v", res.StatusCode)
-	}
+	assert.Equal(t, http.StatusUnauthorized, w.Result().StatusCode)
 }
 
 func TestLoginPost_DirectLogin(t *testing.T) {
@@ -132,35 +101,24 @@ func TestLoginPost_DirectLogin(t *testing.T) {
 		},
 	}
 	handler := NewAuthHandler(nil, &MockAuthService{}, mockSessionStore, nil, nil)
-
 	body := `{"email": "test@example.com", "password": "password123"}`
 	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	handler.LoginPost(w, req)
-	res := w.Result()
-	if res.StatusCode != http.StatusOK {
-		t.Errorf("expected 200 OK, got %v", res.StatusCode)
-	}
+	assert.Equal(t, http.StatusOK, w.Result().StatusCode)
 }
 
 func TestLoginPost_OAuthFlow(t *testing.T) {
 	handler := NewAuthHandler(nil, &MockAuthService{}, &MockSessionStore{}, &MockCodeStore{}, nil)
-
 	body := `{"email": "test@example.com", "password": "password123"}`
 	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	handler.LoginPost(w, req)
 	res := w.Result()
-	if res.StatusCode != http.StatusFound {
-		t.Errorf("expected 302 Found, got %v", res.StatusCode)
-	}
-	location := res.Header.Get("Location")
-	expectedLocation := "https://example.com/callback?code=authcode123&state=xyz"
-	if location != expectedLocation {
-		t.Errorf("expected redirect to %v, got %v", expectedLocation, location)
-	}
+	assert.Equal(t, http.StatusFound, res.StatusCode)
+	assert.Equal(t, "https://example.com/callback?code=authcode123&state=xyz", res.Header.Get("Location"))
 }
 
 func TestLoginPost_OAuthFlow_FailedCreateCode(t *testing.T) {
@@ -170,16 +128,12 @@ func TestLoginPost_OAuthFlow_FailedCreateCode(t *testing.T) {
 		},
 	}
 	handler := NewAuthHandler(nil, &MockAuthService{}, &MockSessionStore{}, mockCodeStore, nil)
-
 	body := `{"email": "test@example.com", "password": "password123"}`
 	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	handler.LoginPost(w, req)
-	res := w.Result()
-	if res.StatusCode != http.StatusInternalServerError {
-		t.Errorf("expected 500 Internal Server Error, got %v", res.StatusCode)
-	}
+	assert.Equal(t, http.StatusInternalServerError, w.Result().StatusCode)
 }
 
 func TestToken_UnrecognizedClientID(t *testing.T) {
@@ -189,43 +143,30 @@ func TestToken_UnrecognizedClientID(t *testing.T) {
 		},
 	}
 	handler := NewAuthHandler(mockClientService, nil, nil, nil, nil)
-
 	body := `client_id=invalid&client_secret=secret&grant_type=authorization_code`
 	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	handler.Token(w, req)
-	res := w.Result()
-	if res.StatusCode != http.StatusUnauthorized {
-		t.Errorf("expected 401 Unauthorized, got %v", res.StatusCode)
-	}
-	if !mockClientService.GetClientByIDCalled {
-		t.Error("expected GetClientByID to be called")
-	}
-	if mockClientService.ValidateSecretCalled {
-		t.Error("expected ValidateSecret not to be called")
-	}
+	assert.Equal(t, http.StatusUnauthorized, w.Result().StatusCode)
+	assert.True(t, mockClientService.GetClientByIDCalled)
+	assert.False(t, mockClientService.ValidateSecretCalled)
 }
 
 func TestToken_BadSecret(t *testing.T) {
-	mockClientService := &MockClientService{}
-	mockClientService.ValidateSecretFunc = func(ctx context.Context, clientID string, secret string) error {
-		return errors.New("invalid secret")
+	mockClientService := &MockClientService{
+		ValidateSecretFunc: func(ctx context.Context, clientID string, secret string) error {
+			return errors.New("invalid secret")
+		},
 	}
 	handler := NewAuthHandler(mockClientService, nil, nil, nil, nil)
-
 	body := `client_id=abc123&client_secret=secret&grant_type=authorization_code&code=valid`
 	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	handler.Token(w, req)
-	res := w.Result()
-	if res.StatusCode != http.StatusUnauthorized {
-		t.Errorf("expected 401 Unauthorized, got %v", res.StatusCode)
-	}
-	if !mockClientService.ValidateSecretCalled {
-		t.Error("expected ValidateSecret to be called")
-	}
+	assert.Equal(t, http.StatusUnauthorized, w.Result().StatusCode)
+	assert.True(t, mockClientService.ValidateSecretCalled)
 }
 
 func TestToken_InvalidCode(t *testing.T) {
@@ -235,55 +176,35 @@ func TestToken_InvalidCode(t *testing.T) {
 		},
 	}
 	handler := NewAuthHandler(&MockClientService{}, nil, nil, mockCodeStore, nil)
-
 	body := `client_id=abc123&client_secret=secret&grant_type=authorization_code&code=invalid`
 	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	handler.Token(w, req)
-	res := w.Result()
-	if res.StatusCode != http.StatusUnauthorized {
-		t.Errorf("expected 401 Unauthorized, got %v", res.StatusCode)
-	}
-	if !mockCodeStore.VerifyCodeCalled {
-		t.Error("expected VerifyCode to be called")
-	}
+	assert.Equal(t, http.StatusUnauthorized, w.Result().StatusCode)
+	assert.True(t, mockCodeStore.VerifyCodeCalled)
 }
 
 func TestToken_ClientIDMismatch(t *testing.T) {
 	handler := NewAuthHandler(&MockClientService{}, nil, nil, &MockCodeStore{}, nil)
-
 	body := `client_id=321cba&client_secret=secret&grant_type=authorization_code&code=valid`
 	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	handler.Token(w, req)
-	res := w.Result()
-	if res.StatusCode != http.StatusUnauthorized {
-		t.Errorf("expected 401 Unauthorized, got %v", res.StatusCode)
-	}
-	resBody := w.Body.String()
-	if !strings.Contains(resBody, "client_id mismatch") {
-		t.Errorf("expected response body to contain 'client_id mismatch', got %v", resBody)
-	}
+	assert.Equal(t, http.StatusUnauthorized, w.Result().StatusCode)
+	assert.Contains(t, w.Body.String(), "client_id mismatch")
 }
 
 func TestToken_RedirectURIMismatch(t *testing.T) {
 	handler := NewAuthHandler(&MockClientService{}, nil, nil, &MockCodeStore{}, nil)
-
 	body := `client_id=abc123&client_secret=secret&grant_type=authorization_code&code=valid&redirect_uri=https://malicious.com/callback`
 	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	handler.Token(w, req)
-	res := w.Result()
-	if res.StatusCode != http.StatusUnauthorized {
-		t.Errorf("expected 401 Unauthorized, got %v", res.StatusCode)
-	}
-	resBody := w.Body.String()
-	if !strings.Contains(resBody, "redirect_uri mismatch") {
-		t.Errorf("expected response body to contain 'redirect_uri mismatch', got %v", resBody)
-	}
+	assert.Equal(t, http.StatusUnauthorized, w.Result().StatusCode)
+	assert.Contains(t, w.Body.String(), "redirect_uri mismatch")
 }
 
 func TestToken_UserNotFound(t *testing.T) {
@@ -293,35 +214,23 @@ func TestToken_UserNotFound(t *testing.T) {
 		},
 	}
 	handler := NewAuthHandler(&MockClientService{}, mockAuthService, nil, &MockCodeStore{}, nil)
-
 	body := `client_id=abc123&client_secret=secret&grant_type=authorization_code&code=valid&redirect_uri=https://example.com/callback`
 	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	handler.Token(w, req)
-	res := w.Result()
-	if res.StatusCode != http.StatusUnauthorized {
-		t.Errorf("expected 401 Unauthorized, got %v", res.StatusCode)
-	}
-	if !mockAuthService.GetUserByIDCalled {
-		t.Error("expected GetUserByID to be called")
-	}
+	assert.Equal(t, http.StatusUnauthorized, w.Result().StatusCode)
+	assert.True(t, mockAuthService.GetUserByIDCalled)
 }
 
 func TestToken_Success(t *testing.T) {
 	mockTokenService := &MockTokenService{}
 	handler := NewAuthHandler(&MockClientService{}, &MockAuthService{}, nil, &MockCodeStore{}, mockTokenService)
-
 	body := `client_id=abc123&client_secret=secret&grant_type=authorization_code&code=valid&redirect_uri=https://example.com/callback`
 	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	handler.Token(w, req)
-	res := w.Result()
-	if res.StatusCode != http.StatusOK {
-		t.Errorf("expected 200 OK, got %v", res.StatusCode)
-	}
-	if !mockTokenService.GenerateTokenCalled {
-		t.Error("expected GenerateToken to be called")
-	}
+	assert.Equal(t, http.StatusOK, w.Result().StatusCode)
+	assert.True(t, mockTokenService.GenerateTokenCalled)
 }

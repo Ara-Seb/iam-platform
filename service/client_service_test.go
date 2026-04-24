@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/yourname/iam-platform/models"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -12,34 +13,19 @@ import (
 func TestRegisterClient_Confidential(t *testing.T) {
 	mockClientRepo := &MockClientRepository{}
 	service := NewClientService(mockClientRepo)
-
 	_, secret, err := service.RegisterClient(context.Background(), models.ClientTypeConfidential, []string{"https://example.com/callback"}, "owner-id")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if secret == "" {
-		t.Error("expected secret to be generated for confidential client")
-	}
-	err = bcrypt.CompareHashAndPassword([]byte(mockClientRepo.SecretHash), []byte(secret))
-	if err != nil {
-		t.Error("expected secret to match stored hash")
-	}
+	assert.NoError(t, err)
+	assert.NotEmpty(t, secret)
+	assert.NoError(t, bcrypt.CompareHashAndPassword([]byte(mockClientRepo.SecretHash), []byte(secret)))
 }
 
 func TestRegisterClient_Public(t *testing.T) {
 	mockClientRepo := &MockClientRepository{}
 	service := NewClientService(mockClientRepo)
-
 	_, secret, err := service.RegisterClient(context.Background(), models.ClientTypePublic, []string{"https://example.com/callback"}, "owner-id")
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-	if secret != "" {
-		t.Error("expected no secret to be generated for public client")
-	}
-	if mockClientRepo.SecretHash != "" {
-		t.Error("expected hashed secret to be empty for public client")
-	}
+	assert.NoError(t, err)
+	assert.Empty(t, secret)
+	assert.Empty(t, mockClientRepo.SecretHash)
 }
 
 func TestRepoFailure(t *testing.T) {
@@ -49,15 +35,20 @@ func TestRepoFailure(t *testing.T) {
 		},
 	}
 	service := NewClientService(mockRepo)
-
 	client, secret, err := service.RegisterClient(context.Background(), models.ClientTypeConfidential, []string{"https://example.com/callback"}, "owner-id")
-	if client != nil {
-		t.Fatalf("expected client to be nil, got %v", client)
-	}
-	if secret != "" {
-		t.Errorf("expected secret to be empty, got %v", secret)
-	}
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
+	assert.Nil(t, client)
+	assert.Empty(t, secret)
+	assert.Error(t, err)
+}
+
+func TestValidateSecret_InvalidSecret(t *testing.T) {
+	service := NewClientService(&MockClientRepository{})
+	err := service.ValidateSecret(context.Background(), "client-id", "wrongsecret")
+	assert.ErrorIs(t, err, ErrInvalidClientSecret)
+}
+
+func TestValidateSecret_Success(t *testing.T) {
+	service := NewClientService(&MockClientRepository{})
+	err := service.ValidateSecret(context.Background(), "client-id", "correctsecret")
+	assert.NoError(t, err)
 }

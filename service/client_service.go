@@ -69,7 +69,7 @@ func (s *ClientService) ValidateSecret(ctx context.Context, clientID string, sec
 	}
 	err = crypto.VerifyHash(storedHash, secret)
 	if err != nil {
-		return fmt.Errorf("invalid secret")
+		return ErrInvalidClientSecret
 	}
 	return nil
 }

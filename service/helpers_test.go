@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/yourname/iam-platform/models"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type MockClientRepository struct {
@@ -73,7 +74,8 @@ func (m *MockUserRepository) FindByID(ctx context.Context, id string) (*models.U
 
 func (m *MockClientRepository) GetSecretHashByID(ctx context.Context, id string) (string, error) {
 	if m.GetSecretHashByIDFunc == nil {
-		return "", nil
+		hash, _ := bcrypt.GenerateFromPassword([]byte("correctsecret"), bcrypt.DefaultCost)
+		return string(hash), nil
 	}
 	return m.GetSecretHashByIDFunc(ctx, id)
 }
