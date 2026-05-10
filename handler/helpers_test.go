@@ -14,6 +14,17 @@ import (
 	"github.com/yourname/iam-platform/store"
 )
 
+const (
+	testClientID        = "abc123"
+	testRedirectURI     = "https://example.com/callback"
+	testScope           = "openid"
+	testState           = "xyz"
+	testUserID          = "123"
+	testCode            = "authcode123"
+	testValidVerifier   = "atLeast43CharactersLongCodeVerifierWhichIsValid"
+	testInvalidVerifier = "atLeast43CharactersLongCodeVerifierWhichIsBad"
+)
+
 type MockClientService struct {
 	GetClientByIDCalled  bool
 	GetClientByIDFunc    func(ctx context.Context, id string) (*models.Client, error)
@@ -25,8 +36,8 @@ func (m *MockClientService) GetClientByID(ctx context.Context, id string) (*mode
 	m.GetClientByIDCalled = true
 	if m.GetClientByIDFunc == nil {
 		return &models.Client{
-			ID:           "abc123",
-			RedirectURIs: []string{"https://example.com/callback"},
+			ID:           testClientID,
+			RedirectURIs: []string{testRedirectURI},
 			ClientType:   models.ClientTypeConfidential,
 		}, nil
 	}
@@ -37,8 +48,8 @@ func GetMockClientServiceWithPublicClient() *MockClientService {
 	return &MockClientService{
 		GetClientByIDFunc: func(ctx context.Context, id string) (*models.Client, error) {
 			return &models.Client{
-				ID:           "abc123",
-				RedirectURIs: []string{"https://example.com/callback"},
+				ID:           testClientID,
+				RedirectURIs: []string{testRedirectURI},
 				ClientType:   models.ClientTypePublic,
 			}, nil
 		},
@@ -62,14 +73,14 @@ type MockAuthService struct {
 
 func (m *MockAuthService) Register(ctx context.Context, email, password string) (*models.User, error) {
 	if m.RegisterFunc == nil {
-		return &models.User{ID: "123", Email: email}, nil
+		return &models.User{ID: testUserID, Email: email}, nil
 	}
 	return m.RegisterFunc(ctx, email, password)
 }
 
 func (m *MockAuthService) Login(ctx context.Context, email, password string) (string, *models.User, error) {
 	if m.LoginFunc == nil {
-		return "token123", &models.User{ID: "123", Email: email}, nil
+		return "token123", &models.User{ID: testUserID, Email: email}, nil
 	}
 	return m.LoginFunc(ctx, email, password)
 }
@@ -99,7 +110,12 @@ func (m *MockSessionStore) Set(w http.ResponseWriter, session *session.Authoriza
 
 func (m *MockSessionStore) Get(r *http.Request) (*session.AuthorizationSession, error) {
 	if m.GetFunc == nil {
-		return &session.AuthorizationSession{ClientID: "abc123", RedirectURI: "https://example.com/callback", Scope: "openid", State: "xyz"}, nil
+		return &session.AuthorizationSession{
+			ClientID:    testClientID,
+			RedirectURI: testRedirectURI,
+			Scope:       testScope,
+			State:       testState,
+		}, nil
 	}
 	return m.GetFunc(r)
 }
@@ -119,7 +135,7 @@ type MockCodeStore struct {
 
 func (m *MockCodeStore) CreateCode(clientID, userID, redirectURI, scope, state, codeChallenge, codeChallengeMethod string) (*store.AuthorizationCode, error) {
 	if m.CreateCodeFunc == nil {
-		return &store.AuthorizationCode{Code: "authcode123"}, nil
+		return &store.AuthorizationCode{Code: testCode}, nil
 	}
 	return m.CreateCodeFunc(clientID, userID, redirectURI, scope, state, codeChallenge, codeChallengeMethod)
 }
@@ -128,33 +144,29 @@ func (m *MockCodeStore) VerifyCode(code string) (*store.AuthorizationCode, error
 	m.VerifyCodeCalled = true
 	if m.VerifyCodeFunc == nil {
 		return &store.AuthorizationCode{
-			ClientID:    "abc123",
-			UserID:      "123",
-			RedirectURI: "https://example.com/callback",
-			Scope:       "openid",
-			State:       "xyz",
+			ClientID:    testClientID,
+			UserID:      testUserID,
+			RedirectURI: testRedirectURI,
+			Scope:       testScope,
+			State:       testState,
 		}, nil
 	}
 	return m.VerifyCodeFunc(code)
 }
 
 func GetMockCodeStoreWithPKCE() *MockCodeStore {
+	challenge := crypto.SHA256Hash(testValidVerifier)
+	method := "S256"
 	return &MockCodeStore{
 		VerifyCodeFunc: func(code string) (*store.AuthorizationCode, error) {
 			return &store.AuthorizationCode{
-				ClientID:    "abc123",
-				UserID:      "123",
-				RedirectURI: "https://example.com/callback",
-				Scope:       "openid",
-				State:       "xyz",
-				CodeChallenge: func() *string {
-					s := crypto.SHA256Hash("atLeast43CharactersLongCodeVerifierWhichIsValid")
-					return &s
-				}(),
-				CodeChallengeMethod: func() *string {
-					s := "S256"
-					return &s
-				}(),
+				ClientID:            testClientID,
+				UserID:              testUserID,
+				RedirectURI:         testRedirectURI,
+				Scope:               testScope,
+				State:               testState,
+				CodeChallenge:       &challenge,
+				CodeChallengeMethod: &method,
 			}, nil
 		},
 	}
