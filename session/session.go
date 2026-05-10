@@ -12,10 +12,12 @@ type SessionStore struct {
 }
 
 type AuthorizationSession struct {
-	ClientID    string `json:"client_id"`
-	RedirectURI string `json:"redirect_uri"`
-	Scope       string `json:"scope"`
-	State       string `json:"state"`
+	ClientID            string `json:"client_id"`
+	RedirectURI         string `json:"redirect_uri"`
+	Scope               string `json:"scope"`
+	State               string `json:"state"`
+	CodeChallenge       string `json:"code_challenge"`
+	CodeChallengeMethod string `json:"code_challenge_method"`
 }
 
 const sessionCookieName = "auth_session"

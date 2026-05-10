@@ -8,13 +8,15 @@ import (
 )
 
 type AuthorizationCode struct {
-	Code        string
-	ClientID    string
-	UserID      string
-	RedirectURI string
-	Scope       string
-	State       string
-	CreatedAt   time.Time
+	Code                string
+	ClientID            string
+	UserID              string
+	RedirectURI         string
+	Scope               string
+	State               string
+	CodeChallenge       *string
+	CodeChallengeMethod *string
+	CreatedAt           time.Time
 }
 
 type AuthCodeStore struct {
@@ -30,19 +32,21 @@ func NewAuthCodeStore() *AuthCodeStore {
 	}
 }
 
-func (s *AuthCodeStore) CreateCode(clientID, userID, redirectURI, scope, state string) (*AuthorizationCode, error) {
+func (s *AuthCodeStore) CreateCode(clientID, userID, redirectURI, scope, state, codeChallenge, codeChallengeMethod string) (*AuthorizationCode, error) {
 	randomCode, err := crypto.GenerateRandomToken()
 	if err != nil {
 		return nil, err
 	}
 	code := &AuthorizationCode{
-		Code:        randomCode,
-		ClientID:    clientID,
-		UserID:      userID,
-		RedirectURI: redirectURI,
-		Scope:       scope,
-		State:       state,
-		CreatedAt:   time.Now(),
+		Code:                randomCode,
+		ClientID:            clientID,
+		UserID:              userID,
+		RedirectURI:         redirectURI,
+		Scope:               scope,
+		State:               state,
+		CodeChallenge:       &codeChallenge,
+		CodeChallengeMethod: &codeChallengeMethod,
+		CreatedAt:           time.Now(),
 	}
 	s.mutex.Lock()
 	defer s.mutex.Unlock()

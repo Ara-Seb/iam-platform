@@ -2,8 +2,13 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/yourname/iam-platform/crypto"
 	"github.com/yourname/iam-platform/models"
 	"github.com/yourname/iam-platform/session"
 	"github.com/yourname/iam-platform/store"
@@ -26,6 +31,18 @@ func (m *MockClientService) GetClientByID(ctx context.Context, id string) (*mode
 		}, nil
 	}
 	return m.GetClientByIDFunc(ctx, id)
+}
+
+func GetMockClientServiceWithPublicClient() *MockClientService {
+	return &MockClientService{
+		GetClientByIDFunc: func(ctx context.Context, id string) (*models.Client, error) {
+			return &models.Client{
+				ID:           "abc123",
+				RedirectURIs: []string{"https://example.com/callback"},
+				ClientType:   models.ClientTypePublic,
+			}, nil
+		},
+	}
 }
 
 func (m *MockClientService) ValidateSecret(ctx context.Context, clientID string, secret string) error {
@@ -96,15 +113,15 @@ func (m *MockSessionStore) Clear(w http.ResponseWriter) {
 
 type MockCodeStore struct {
 	VerifyCodeCalled bool
-	CreateCodeFunc   func(clientID, userID, redirectURI, scope, state string) (*store.AuthorizationCode, error)
+	CreateCodeFunc   func(clientID, userID, redirectURI, scope, state, codeChallenge, codeChallengeMethod string) (*store.AuthorizationCode, error)
 	VerifyCodeFunc   func(code string) (*store.AuthorizationCode, error)
 }
 
-func (m *MockCodeStore) CreateCode(clientID, userID, redirectURI, scope, state string) (*store.AuthorizationCode, error) {
+func (m *MockCodeStore) CreateCode(clientID, userID, redirectURI, scope, state, codeChallenge, codeChallengeMethod string) (*store.AuthorizationCode, error) {
 	if m.CreateCodeFunc == nil {
 		return &store.AuthorizationCode{Code: "authcode123"}, nil
 	}
-	return m.CreateCodeFunc(clientID, userID, redirectURI, scope, state)
+	return m.CreateCodeFunc(clientID, userID, redirectURI, scope, state, codeChallenge, codeChallengeMethod)
 }
 
 func (m *MockCodeStore) VerifyCode(code string) (*store.AuthorizationCode, error) {
@@ -121,6 +138,28 @@ func (m *MockCodeStore) VerifyCode(code string) (*store.AuthorizationCode, error
 	return m.VerifyCodeFunc(code)
 }
 
+func GetMockCodeStoreWithPKCE() *MockCodeStore {
+	return &MockCodeStore{
+		VerifyCodeFunc: func(code string) (*store.AuthorizationCode, error) {
+			return &store.AuthorizationCode{
+				ClientID:    "abc123",
+				UserID:      "123",
+				RedirectURI: "https://example.com/callback",
+				Scope:       "openid",
+				State:       "xyz",
+				CodeChallenge: func() *string {
+					s := crypto.SHA256Hash("atLeast43CharactersLongCodeVerifierWhichIsValid")
+					return &s
+				}(),
+				CodeChallengeMethod: func() *string {
+					s := "S256"
+					return &s
+				}(),
+			}, nil
+		},
+	}
+}
+
 type MockTokenService struct {
 	GenerateTokenCalled bool
 	GenerateTokenFunc   func(user *models.User) (string, error)
@@ -132,4 +171,11 @@ func (m *MockTokenService) GenerateToken(user *models.User) (string, error) {
 		return "token123", nil
 	}
 	return m.GenerateTokenFunc(user)
+}
+
+func ConfirmErrorResponse(t *testing.T, w *httptest.ResponseRecorder, expectedStatus int, expectedError OAuthErrorResponse) {
+	assert.Equal(t, expectedStatus, w.Result().StatusCode)
+	var resp map[string]string
+	assert.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Equal(t, string(expectedError), resp["error"])
 }

@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/schema"
+	"github.com/yourname/iam-platform/crypto"
 	"github.com/yourname/iam-platform/models"
 	"github.com/yourname/iam-platform/service"
 	"github.com/yourname/iam-platform/session"
@@ -33,7 +34,7 @@ type SessionStore interface {
 }
 
 type CodeStore interface {
-	CreateCode(clientID, userID, redirectURI, scope, state string) (*store.AuthorizationCode, error)
+	CreateCode(clientID, userID, redirectURI, scope, state, codeChallenge, codeChallengeMethod string) (*store.AuthorizationCode, error)
 	VerifyCode(code string) (*store.AuthorizationCode, error)
 }
 
@@ -136,7 +137,7 @@ func (h *AuthHandler) LoginPost(w http.ResponseWriter, r *http.Request) {
 
 	cookie, _ := h.SessionStore.Get(r)
 	if cookie != nil {
-		code, err := h.CodeStore.CreateCode(cookie.ClientID, user.ID, cookie.RedirectURI, cookie.Scope, cookie.State)
+		code, err := h.CodeStore.CreateCode(cookie.ClientID, user.ID, cookie.RedirectURI, cookie.Scope, cookie.State, cookie.CodeChallenge, cookie.CodeChallengeMethod)
 		if err != nil {
 			log.Printf("failed to create authorization code: %v", err)
 			http.Error(w, "server error", http.StatusInternalServerError)
@@ -157,11 +158,13 @@ func (h *AuthHandler) LoginGet(w http.ResponseWriter, r *http.Request) {
 }
 
 type AuthorizeRequest struct {
-	ResponseType string `schema:"response_type"`
-	ClientId     string `schema:"client_id"`
-	RedirectURI  string `schema:"redirect_uri"`
-	Scope        string `schema:"scope"`
-	State        string `schema:"state"`
+	ResponseType        string `schema:"response_type"`
+	ClientId            string `schema:"client_id"`
+	RedirectURI         string `schema:"redirect_uri"`
+	Scope               string `schema:"scope"`
+	State               string `schema:"state"`
+	CodeChallenge       string `schema:"code_challenge"`
+	CodeChallengeMethod string `schema:"code_challenge_method"`
 }
 
 func (h *AuthHandler) Authorize(w http.ResponseWriter, r *http.Request) {
@@ -183,15 +186,27 @@ func (h *AuthHandler) Authorize(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unrecognized client_id", http.StatusUnauthorized)
 		return
 	}
+	if client.ClientType == models.ClientTypePublic {
+		if req.CodeChallenge == "" || req.CodeChallengeMethod == "" {
+			http.Error(w, "code_challenge and code_challenge_method required for public clients", http.StatusBadRequest)
+			return
+		}
+		if req.CodeChallengeMethod != "S256" {
+			http.Error(w, "unsupported code_challenge_method", http.StatusBadRequest)
+			return
+		}
+	}
 	if !utils.Contains(client.RedirectURIs, req.RedirectURI) {
 		http.Error(w, "invalid redirect_uri", http.StatusUnauthorized)
 		return
 	}
 	session := &session.AuthorizationSession{
-		ClientID:    req.ClientId,
-		RedirectURI: req.RedirectURI,
-		Scope:       req.Scope,
-		State:       req.State,
+		ClientID:            req.ClientId,
+		RedirectURI:         req.RedirectURI,
+		Scope:               req.Scope,
+		State:               req.State,
+		CodeChallenge:       req.CodeChallenge,
+		CodeChallengeMethod: req.CodeChallengeMethod,
 	}
 	err = h.SessionStore.Set(w, session)
 	if err != nil {
@@ -215,7 +230,7 @@ func (h *AuthHandler) Token(w http.ResponseWriter, r *http.Request) {
 	case "password":
 		h.handleROPC(w, r)
 	default:
-		// return OAuth2 error response
+		CreateErrorResponse(w, http.StatusBadRequest, ErrUnsupportedGrantType)
 	}
 }
 
@@ -228,52 +243,72 @@ func (h *AuthHandler) handleRefreshToken(w http.ResponseWriter, r *http.Request)
 }
 
 type TokenRequest struct {
-	GrantType    string `schema:"grant_type"`
-	ClientID     string `schema:"client_id"`
-	ClientSecret string `schema:"client_secret"`
-	RedirectURI  string `schema:"redirect_uri"`
-	Code         string `schema:"code"`
+	GrantType    string  `schema:"grant_type"`
+	ClientID     string  `schema:"client_id"`
+	ClientSecret string  `schema:"client_secret"`
+	RedirectURI  string  `schema:"redirect_uri"`
+	Code         string  `schema:"code"`
+	CodeVerifier *string `schema:"code_verifier"`
 }
 
 func (h *AuthHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Request) {
 	var req TokenRequest
 	if err := h.Decoder.Decode(&req, r.Form); err != nil {
-		http.Error(w, "invalid request", http.StatusBadRequest)
+		CreateErrorResponse(w, http.StatusBadRequest, ErrInvalidRequest)
 		return
 	}
 	client, err := h.ClientService.GetClientByID(r.Context(), req.ClientID)
 	if err != nil {
-		http.Error(w, "unrecognized client_id", http.StatusUnauthorized)
+		CreateErrorResponse(w, http.StatusUnauthorized, ErrInvalidClient)
+		log.Printf("unrecognized client, error: %v", err)
 		return
 	}
 	if client.ClientType == models.ClientTypeConfidential {
 		err = h.ClientService.ValidateSecret(r.Context(), req.ClientID, req.ClientSecret)
 		if err != nil {
-			http.Error(w, "invalid client credentials", http.StatusUnauthorized)
+			CreateErrorResponse(w, http.StatusUnauthorized, ErrInvalidClient)
+			log.Printf("invalid client secret, error: %v", err)
 			return
 		}
 	}
 	code, err := h.CodeStore.VerifyCode(req.Code)
 	if err != nil {
-		http.Error(w, "invalid code", http.StatusUnauthorized)
+		CreateErrorResponse(w, http.StatusBadRequest, ErrInvalidGrant)
+		log.Printf("invalid code, error: %v", err)
 		return
 	}
 	if req.ClientID != code.ClientID {
-		http.Error(w, "client_id mismatch", http.StatusUnauthorized)
+		CreateErrorResponse(w, http.StatusBadRequest, ErrInvalidGrant)
+		log.Printf("client_id mismatch, expected %s, got %s", code.ClientID, req.ClientID)
 		return
 	}
+	if code.CodeChallenge != nil && code.CodeChallengeMethod != nil {
+		if req.CodeVerifier == nil || !utils.ValidateCodeVerifier(*req.CodeVerifier) {
+			CreateErrorResponse(w, http.StatusBadRequest, ErrInvalidRequest)
+			log.Printf("invalid code_verifier")
+			return
+		}
+		if !crypto.VerifyCodeChallenge(*req.CodeVerifier, *code.CodeChallenge, *code.CodeChallengeMethod) {
+			CreateErrorResponse(w, http.StatusBadRequest, ErrInvalidGrant)
+			log.Printf("code_verifier does not match code_challenge")
+			return
+		}
+	}
 	if req.RedirectURI != code.RedirectURI {
-		http.Error(w, "redirect_uri mismatch", http.StatusUnauthorized)
+		CreateErrorResponse(w, http.StatusBadRequest, ErrInvalidGrant)
+		log.Printf("redirect_uri mismatch, expected %s, got %s", code.RedirectURI, req.RedirectURI)
 		return
 	}
 	user, err := h.AuthService.GetUserByID(r.Context(), code.UserID)
 	if err != nil {
-		http.Error(w, "user not found", http.StatusUnauthorized)
+		CreateErrorResponse(w, http.StatusBadRequest, ErrInvalidGrant)
+		log.Printf("user not found, error: %v", err)
 		return
 	}
 	token, err := h.TokenService.GenerateToken(user)
 	if err != nil {
 		http.Error(w, "failed to generate token", http.StatusInternalServerError)
+		log.Printf("token generation error: %v", err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

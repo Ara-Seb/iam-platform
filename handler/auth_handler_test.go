@@ -66,6 +66,42 @@ func TestAuthorize_InvalidRedirectURI(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Result().StatusCode)
 }
 
+func TestAuthorize_MissingCodeChallenge(t *testing.T) {
+	mockClientService := &MockClientService{
+		GetClientByIDFunc: func(ctx context.Context, id string) (*models.Client, error) {
+			return &models.Client{
+				ID:           "abc123",
+				RedirectURIs: []string{"https://example.com/callback"},
+				ClientType:   models.ClientTypePublic,
+			}, nil
+		},
+	}
+	handler := NewAuthHandler(mockClientService, nil, nil, nil, nil)
+	reqTarget := "/authorize?response_type=code&client_id=abc123&redirect_uri=https://example.com/callback&scope=openid&state=xyz"
+	req := httptest.NewRequest(http.MethodGet, reqTarget, nil)
+	w := httptest.NewRecorder()
+	handler.Authorize(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Result().StatusCode)
+}
+
+func TestAuthorize_InvalidCodeChallengeMethod(t *testing.T) {
+	mockClientService := &MockClientService{
+		GetClientByIDFunc: func(ctx context.Context, id string) (*models.Client, error) {
+			return &models.Client{
+				ID:           "abc123",
+				RedirectURIs: []string{"https://example.com/callback"},
+				ClientType:   models.ClientTypePublic,
+			}, nil
+		},
+	}
+	handler := NewAuthHandler(mockClientService, nil, nil, nil, nil)
+	reqTarget := "/authorize?response_type=code&client_id=abc123&redirect_uri=https://example.com/callback&scope=openid&state=xyz&code_challenge=challenge&code_challenge_method=invalid"
+	req := httptest.NewRequest(http.MethodGet, reqTarget, nil)
+	w := httptest.NewRecorder()
+	handler.Authorize(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Result().StatusCode)
+}
+
 func TestAuthorize_Success(t *testing.T) {
 	mockSessionStore := &MockSessionStore{}
 	handler := NewAuthHandler(&MockClientService{}, nil, mockSessionStore, nil, nil)
@@ -123,7 +159,7 @@ func TestLoginPost_OAuthFlow(t *testing.T) {
 
 func TestLoginPost_OAuthFlow_FailedCreateCode(t *testing.T) {
 	mockCodeStore := &MockCodeStore{
-		CreateCodeFunc: func(clientID, userID, redirectURI, scope, state string) (*store.AuthorizationCode, error) {
+		CreateCodeFunc: func(clientID, userID, redirectURI, scope, state, codeChallenge, codeChallengeMethod string) (*store.AuthorizationCode, error) {
 			return nil, errors.New("failed to create code")
 		},
 	}
@@ -181,7 +217,7 @@ func TestToken_InvalidCode(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	handler.Token(w, req)
-	assert.Equal(t, http.StatusUnauthorized, w.Result().StatusCode)
+	assert.Equal(t, http.StatusBadRequest, w.Result().StatusCode)
 	assert.True(t, mockCodeStore.VerifyCodeCalled)
 }
 
@@ -192,8 +228,7 @@ func TestToken_ClientIDMismatch(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	handler.Token(w, req)
-	assert.Equal(t, http.StatusUnauthorized, w.Result().StatusCode)
-	assert.Contains(t, w.Body.String(), "client_id mismatch")
+	ConfirmErrorResponse(t, w, http.StatusBadRequest, ErrInvalidGrant)
 }
 
 func TestToken_RedirectURIMismatch(t *testing.T) {
@@ -203,8 +238,7 @@ func TestToken_RedirectURIMismatch(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	handler.Token(w, req)
-	assert.Equal(t, http.StatusUnauthorized, w.Result().StatusCode)
-	assert.Contains(t, w.Body.String(), "redirect_uri mismatch")
+	ConfirmErrorResponse(t, w, http.StatusBadRequest, ErrInvalidGrant)
 }
 
 func TestToken_UserNotFound(t *testing.T) {
@@ -219,14 +253,46 @@ func TestToken_UserNotFound(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	handler.Token(w, req)
-	assert.Equal(t, http.StatusUnauthorized, w.Result().StatusCode)
+	assert.Equal(t, http.StatusBadRequest, w.Result().StatusCode)
 	assert.True(t, mockAuthService.GetUserByIDCalled)
+}
+
+func TestToken_MissingCodeVerifier(t *testing.T) {
+	handler := NewAuthHandler(GetMockClientServiceWithPublicClient(), nil, nil, GetMockCodeStoreWithPKCE(), nil)
+	body := `client_id=abc123&client_secret=secret&grant_type=authorization_code&code=valid&redirect_uri=https://example.com/callback`
+	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	handler.Token(w, req)
+	ConfirmErrorResponse(t, w, http.StatusBadRequest, ErrInvalidRequest)
+}
+
+func TestToken_BadCodeVerifier(t *testing.T) {
+	handler := NewAuthHandler(GetMockClientServiceWithPublicClient(), nil, nil, GetMockCodeStoreWithPKCE(), nil)
+	body := `client_id=abc123&client_secret=secret&grant_type=authorization_code&code=valid&redirect_uri=https://example.com/callback&code_verifier=atLeast43CharactersLongCodeVerifierWhichIsBad`
+	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	handler.Token(w, req)
+	ConfirmErrorResponse(t, w, http.StatusBadRequest, ErrInvalidGrant)
 }
 
 func TestToken_Success(t *testing.T) {
 	mockTokenService := &MockTokenService{}
 	handler := NewAuthHandler(&MockClientService{}, &MockAuthService{}, nil, &MockCodeStore{}, mockTokenService)
 	body := `client_id=abc123&client_secret=secret&grant_type=authorization_code&code=valid&redirect_uri=https://example.com/callback`
+	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	handler.Token(w, req)
+	assert.Equal(t, http.StatusOK, w.Result().StatusCode)
+	assert.True(t, mockTokenService.GenerateTokenCalled)
+}
+
+func TestToken_SuccessPKCE(t *testing.T) {
+	mockTokenService := &MockTokenService{}
+	handler := NewAuthHandler(GetMockClientServiceWithPublicClient(), &MockAuthService{}, nil, GetMockCodeStoreWithPKCE(), mockTokenService)
+	body := `client_id=abc123&grant_type=authorization_code&code=valid&redirect_uri=https://example.com/callback&code_verifier=atLeast43CharactersLongCodeVerifierWhichIsValid`
 	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
