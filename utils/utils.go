@@ -25,6 +25,15 @@ func BuildRedirectURI(baseURI string, code string, state string) string {
 	return u.String()
 }
 
+func BuildErrorRedirectURI(baseURI string, errorCode string, state string) string {
+	u, _ := url.Parse(baseURI)
+	q := u.Query()
+	q.Set("error", errorCode)
+	q.Set("state", state)
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
 func ValidateCodeVerifier(codeVerifier string) bool {
 	return len(codeVerifier) >= 43 && len(codeVerifier) <= 128 && regexCodeVerifier.MatchString(codeVerifier)
 }

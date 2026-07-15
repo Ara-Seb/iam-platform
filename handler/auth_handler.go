@@ -173,33 +173,38 @@ func (h *AuthHandler) Authorize(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	if req.ClientId == "" || req.RedirectURI == "" || req.Scope == "" || req.State == "" {
+	if req.ClientId == "" || req.RedirectURI == "" {
 		http.Error(w, "missing required parameters", http.StatusBadRequest)
 		return
 	}
-	if req.ResponseType != "code" {
-		http.Error(w, "unsupported response_type", http.StatusBadRequest)
-		return
-	}
+
 	client, err := h.ClientService.GetClientByID(r.Context(), req.ClientId)
 	if err != nil {
 		http.Error(w, "unrecognized client_id", http.StatusUnauthorized)
 		return
 	}
-	if client.ClientType == models.ClientTypePublic {
-		if req.CodeChallenge == "" || req.CodeChallengeMethod == "" {
-			http.Error(w, "code_challenge and code_challenge_method required for public clients", http.StatusBadRequest)
-			return
-		}
-		if req.CodeChallengeMethod != "S256" {
-			http.Error(w, "unsupported code_challenge_method", http.StatusBadRequest)
-			return
-		}
-	}
 	if !utils.Contains(client.RedirectURIs, req.RedirectURI) {
 		http.Error(w, "invalid redirect_uri", http.StatusUnauthorized)
 		return
 	}
+	if req.Scope == "" || req.State == "" {
+		URI := utils.BuildErrorRedirectURI(req.RedirectURI, string(ErrInvalidRequest), req.State)
+		http.Redirect(w, r, URI, http.StatusFound)
+		return
+	}
+	if req.ResponseType != "code" {
+		URI := utils.BuildErrorRedirectURI(req.RedirectURI, string(ErrUnsupportedResponseType), req.State)
+		http.Redirect(w, r, URI, http.StatusFound)
+		return
+	}
+	if client.ClientType == models.ClientTypePublic {
+		if req.CodeChallenge == "" || req.CodeChallengeMethod != "S256" {
+			URI := utils.BuildErrorRedirectURI(req.RedirectURI, string(ErrInvalidRequest), req.State)
+			http.Redirect(w, r, URI, http.StatusFound)
+			return
+		}
+	}
+
 	session := &session.AuthorizationSession{
 		ClientID:            req.ClientId,
 		RedirectURI:         req.RedirectURI,
@@ -210,7 +215,9 @@ func (h *AuthHandler) Authorize(w http.ResponseWriter, r *http.Request) {
 	}
 	err = h.SessionStore.Set(w, session)
 	if err != nil {
-		http.Error(w, "server error", http.StatusInternalServerError)
+		log.Printf("failed to set session: %v", err)
+		URI := utils.BuildErrorRedirectURI(req.RedirectURI, string(ErrServerError), req.State)
+		http.Redirect(w, r, URI, http.StatusFound)
 		return
 	}
 	http.Redirect(w, r, "/login", http.StatusFound)

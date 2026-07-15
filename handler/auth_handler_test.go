@@ -15,6 +15,7 @@ import (
 	"github.com/yourname/iam-platform/service"
 	"github.com/yourname/iam-platform/session"
 	"github.com/yourname/iam-platform/store"
+	"github.com/yourname/iam-platform/utils"
 )
 
 func TestRegister_EmailExists(t *testing.T) {
@@ -48,9 +49,44 @@ func TestRegister_Success(t *testing.T) {
 	assert.Equal(t, testUserID, resp.ID)
 }
 
+func TestAuthorize_MissingClientID(t *testing.T) {
+	handler := NewAuthHandler(&MockClientService{}, nil, nil, nil, nil)
+	reqTarget := "/authorize?response_type=code&redirect_uri=" + testRedirectURI + "&scope=" + testScope + "&state=" + testState
+	req := httptest.NewRequest(http.MethodGet, reqTarget, nil)
+	w := httptest.NewRecorder()
+	handler.Authorize(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Result().StatusCode)
+}
+
+func TestAuthorize_UnrecognizedClientID(t *testing.T) {
+	mockClientService := &MockClientService{
+		GetClientByIDFunc: func(ctx context.Context, id string) (*models.Client, error) {
+			return nil, repository.ErrNotFound
+		},
+	}
+	handler := NewAuthHandler(mockClientService, nil, nil, nil, nil)
+	reqTarget := "/authorize?response_type=code&client_id=invalid&redirect_uri=" + testRedirectURI + "&scope=" + testScope + "&state=" + testState
+	req := httptest.NewRequest(http.MethodGet, reqTarget, nil)
+	w := httptest.NewRecorder()
+	handler.Authorize(w, req)
+	assert.Equal(t, http.StatusUnauthorized, w.Result().StatusCode)
+	assert.True(t, mockClientService.GetClientByIDCalled)
+}
+
 func TestAuthorize_MissingResponseType(t *testing.T) {
-	handler := NewAuthHandler(nil, nil, nil, nil, nil)
+	handler := NewAuthHandler(&MockClientService{}, nil, nil, nil, nil)
 	reqTarget := "/authorize?client_id=" + testClientID + "&redirect_uri=" + testRedirectURI + "&scope=" + testScope + "&state=" + testState
+	req := httptest.NewRequest(http.MethodGet, reqTarget, nil)
+	w := httptest.NewRecorder()
+	handler.Authorize(w, req)
+	expected := utils.BuildErrorRedirectURI(testRedirectURI, string(ErrUnsupportedResponseType), testState)
+	assert.Equal(t, http.StatusFound, w.Result().StatusCode)
+	assert.Equal(t, expected, w.Result().Header.Get("Location"))
+}
+
+func TestAuthorize_MissingRedirectURI(t *testing.T) {
+	handler := NewAuthHandler(&MockClientService{}, nil, nil, nil, nil)
+	reqTarget := "/authorize?response_type=code&client_id=" + testClientID + "&scope=" + testScope + "&state=" + testState
 	req := httptest.NewRequest(http.MethodGet, reqTarget, nil)
 	w := httptest.NewRecorder()
 	handler.Authorize(w, req)
@@ -72,7 +108,9 @@ func TestAuthorize_MissingCodeChallenge(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, reqTarget, nil)
 	w := httptest.NewRecorder()
 	handler.Authorize(w, req)
-	assert.Equal(t, http.StatusBadRequest, w.Result().StatusCode)
+	expected := utils.BuildErrorRedirectURI(testRedirectURI, string(ErrInvalidRequest), testState)
+	assert.Equal(t, http.StatusFound, w.Result().StatusCode)
+	assert.Equal(t, expected, w.Result().Header.Get("Location"))
 }
 
 func TestAuthorize_InvalidCodeChallengeMethod(t *testing.T) {
@@ -81,7 +119,47 @@ func TestAuthorize_InvalidCodeChallengeMethod(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, reqTarget, nil)
 	w := httptest.NewRecorder()
 	handler.Authorize(w, req)
-	assert.Equal(t, http.StatusBadRequest, w.Result().StatusCode)
+	expected := utils.BuildErrorRedirectURI(testRedirectURI, string(ErrInvalidRequest), testState)
+	assert.Equal(t, http.StatusFound, w.Result().StatusCode)
+	assert.Equal(t, expected, w.Result().Header.Get("Location"))
+}
+
+func TestAuthorize_MissingScope(t *testing.T) {
+	handler := NewAuthHandler(&MockClientService{}, nil, nil, nil, nil)
+	reqTarget := "/authorize?response_type=code&client_id=" + testClientID + "&redirect_uri=" + testRedirectURI + "&state=" + testState
+	req := httptest.NewRequest(http.MethodGet, reqTarget, nil)
+	w := httptest.NewRecorder()
+	handler.Authorize(w, req)
+	expected := utils.BuildErrorRedirectURI(testRedirectURI, string(ErrInvalidRequest), testState)
+	assert.Equal(t, http.StatusFound, w.Result().StatusCode)
+	assert.Equal(t, expected, w.Result().Header.Get("Location"))
+}
+
+func TestAuthorize_MissingState(t *testing.T) {
+	handler := NewAuthHandler(&MockClientService{}, nil, nil, nil, nil)
+	reqTarget := "/authorize?response_type=code&client_id=" + testClientID + "&redirect_uri=" + testRedirectURI + "&scope=" + testScope
+	req := httptest.NewRequest(http.MethodGet, reqTarget, nil)
+	w := httptest.NewRecorder()
+	handler.Authorize(w, req)
+	expected := utils.BuildErrorRedirectURI(testRedirectURI, string(ErrInvalidRequest), "")
+	assert.Equal(t, http.StatusFound, w.Result().StatusCode)
+	assert.Equal(t, expected, w.Result().Header.Get("Location"))
+}
+
+func TestAuthorize_SessionStoreError(t *testing.T) {
+	mockSessionStore := &MockSessionStore{
+		SetFunc: func(w http.ResponseWriter, session *session.AuthorizationSession) error {
+			return errors.New("failed to set session")
+		},
+	}
+	handler := NewAuthHandler(&MockClientService{}, nil, mockSessionStore, nil, nil)
+	reqTarget := "/authorize?response_type=code&client_id=" + testClientID + "&redirect_uri=" + testRedirectURI + "&scope=" + testScope + "&state=" + testState
+	req := httptest.NewRequest(http.MethodGet, reqTarget, nil)
+	w := httptest.NewRecorder()
+	handler.Authorize(w, req)
+	expected := utils.BuildErrorRedirectURI(testRedirectURI, string(ErrServerError), testState)
+	assert.Equal(t, http.StatusFound, w.Result().StatusCode)
+	assert.Equal(t, expected, w.Result().Header.Get("Location"))
 }
 
 func TestAuthorize_Success(t *testing.T) {
@@ -152,6 +230,16 @@ func TestLoginPost_OAuthFlow_FailedCreateCode(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.LoginPost(w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Result().StatusCode)
+}
+
+func TestToken_UnrecognizedGrantType(t *testing.T) {
+	handler := NewAuthHandler(nil, nil, nil, nil, nil)
+	body := "client_id=" + testClientID + "&client_secret=secret&grant_type=invalid"
+	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	handler.Token(w, req)
+	ConfirmErrorResponse(t, w, http.StatusBadRequest, ErrUnsupportedGrantType)
 }
 
 func TestToken_UnrecognizedClientID(t *testing.T) {

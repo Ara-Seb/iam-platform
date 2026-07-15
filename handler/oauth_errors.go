@@ -8,12 +8,14 @@ import (
 type OAuthErrorResponse string
 
 const (
-	ErrInvalidRequest       OAuthErrorResponse = "invalid_request"
-	ErrInvalidClient        OAuthErrorResponse = "invalid_client"
-	ErrInvalidGrant         OAuthErrorResponse = "invalid_grant"
-	ErrUnauthorizedClient   OAuthErrorResponse = "unauthorized_client"
-	ErrUnsupportedGrantType OAuthErrorResponse = "unsupported_grant_type"
-	ErrInvalidScope         OAuthErrorResponse = "invalid_scope"
+	ErrInvalidRequest          OAuthErrorResponse = "invalid_request"
+	ErrInvalidClient           OAuthErrorResponse = "invalid_client"
+	ErrInvalidGrant            OAuthErrorResponse = "invalid_grant"
+	ErrUnauthorizedClient      OAuthErrorResponse = "unauthorized_client"
+	ErrUnsupportedGrantType    OAuthErrorResponse = "unsupported_grant_type"
+	ErrUnsupportedResponseType OAuthErrorResponse = "unsupported_response_type"
+	ErrInvalidScope            OAuthErrorResponse = "invalid_scope"
+	ErrServerError             OAuthErrorResponse = "server_error"
 )
 
 func CreateErrorResponse(w http.ResponseWriter, statusCode int, message OAuthErrorResponse) {
