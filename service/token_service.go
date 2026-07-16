@@ -19,6 +19,7 @@ func NewTokenService(keys *keys.Keys) *TokenService {
 }
 
 var TokenExpiration = 24 * time.Hour
+var RefreshTokenExpiration = 30 * 24 * time.Hour
 
 func (s *TokenService) GenerateUserToken(user *models.User) (string, error) {
 	now := time.Now()

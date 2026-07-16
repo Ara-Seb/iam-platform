@@ -39,30 +39,38 @@ type CodeStore interface {
 	VerifyCode(code string) (*store.AuthorizationCode, error)
 }
 
+type RefreshTokenStore interface {
+	CreateRefreshToken(userID, clientID, scope string, expiration time.Duration) (*store.RefreshToken, error)
+	VerifyToken(token string) (*store.RefreshToken, error)
+	DeleteToken(token string) error
+}
+
 type TokenService interface {
 	GenerateUserToken(user *models.User) (string, error)
 	GenerateClientToken(clientID string) (string, error)
 }
 
 type AuthHandler struct {
-	ClientService ClientService
-	AuthService   AuthService
-	SessionStore  SessionStore
-	CodeStore     CodeStore
-	TokenService  TokenService
-	Decoder       *schema.Decoder
+	ClientService     ClientService
+	AuthService       AuthService
+	SessionStore      SessionStore
+	CodeStore         CodeStore
+	TokenService      TokenService
+	RefreshTokenStore RefreshTokenStore
+	Decoder           *schema.Decoder
 }
 
-func NewAuthHandler(clientService ClientService, authService AuthService, sessionStore SessionStore, codeStore CodeStore, tokenService TokenService) *AuthHandler {
+func NewAuthHandler(clientService ClientService, authService AuthService, sessionStore SessionStore, codeStore CodeStore, tokenStore RefreshTokenStore, tokenService TokenService) *AuthHandler {
 	decoder := schema.NewDecoder()
 	decoder.IgnoreUnknownKeys(true)
 	return &AuthHandler{
-		ClientService: clientService,
-		AuthService:   authService,
-		SessionStore:  sessionStore,
-		CodeStore:     codeStore,
-		TokenService:  tokenService,
-		Decoder:       decoder,
+		ClientService:     clientService,
+		AuthService:       authService,
+		SessionStore:      sessionStore,
+		CodeStore:         codeStore,
+		RefreshTokenStore: tokenStore,
+		TokenService:      tokenService,
+		Decoder:           decoder,
 	}
 }
 
@@ -247,8 +255,76 @@ func (h *AuthHandler) handleROPC(w http.ResponseWriter, r *http.Request) {
 	panic("unimplemented")
 }
 
+type RefreshTokenRequest struct {
+	Token        string `schema:"refresh_token"`
+	ClientID     string `schema:"client_id"`
+	ClientSecret string `schema:"client_secret"`
+}
+
 func (h *AuthHandler) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
-	panic("unimplemented")
+	var req RefreshTokenRequest
+	if err := h.Decoder.Decode(&req, r.Form); err != nil {
+		CreateErrorResponse(w, http.StatusBadRequest, ErrInvalidRequest)
+		return
+	}
+
+	refreshToken, err := h.RefreshTokenStore.VerifyToken(req.Token)
+	if err != nil {
+		log.Printf("invalid refresh token: %v", err)
+		CreateErrorResponse(w, http.StatusUnauthorized, ErrInvalidGrant)
+		return
+	}
+
+	client, err := h.ClientService.GetClientByID(r.Context(), req.ClientID)
+	if err != nil {
+		log.Printf("unrecognized client: %v", err)
+		CreateErrorResponse(w, http.StatusUnauthorized, ErrInvalidClient)
+		return
+	}
+
+	if client.ClientType == models.ClientTypeConfidential {
+		err = h.ClientService.ValidateSecret(r.Context(), req.ClientID, req.ClientSecret)
+		if err != nil {
+			log.Printf("invalid client secret: %v", err)
+			CreateErrorResponse(w, http.StatusUnauthorized, ErrInvalidClient)
+			return
+		}
+	}
+
+	if refreshToken.ClientID != req.ClientID {
+		log.Printf("client_id mismatch for refresh token")
+		CreateErrorResponse(w, http.StatusUnauthorized, ErrUnauthorizedClient)
+		return
+	}
+
+	user, err := h.AuthService.GetUserByID(r.Context(), refreshToken.UserID)
+	if err != nil {
+		log.Printf("user not found for refresh token: %v", err)
+		CreateErrorResponse(w, http.StatusUnauthorized, ErrInvalidGrant)
+		return
+	}
+
+	token, err := h.TokenService.GenerateUserToken(user)
+	if err != nil {
+		log.Printf("failed to generate new access token: %v", err)
+		CreateErrorResponse(w, http.StatusInternalServerError, ErrServerError)
+		return
+	}
+
+	refreshToken, err = h.RefreshTokenStore.CreateRefreshToken(user.ID, client.ID, refreshToken.Scope, service.RefreshTokenExpiration)
+	if err != nil {
+		log.Printf("failed to create new refresh token: %v", err)
+		CreateErrorResponse(w, http.StatusInternalServerError, ErrServerError)
+		return
+	}
+
+	err = h.RefreshTokenStore.DeleteToken(req.Token)
+	if err != nil {
+		log.Printf("failed to delete refresh token: %v", err)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(TokenResponse{Token: token, Type: "Bearer", ExpiresIn: int64(service.TokenExpiration / time.Second), RefreshToken: refreshToken.Token, Scope: refreshToken.Scope})
 }
 
 type AuthorizationCodeTokenRequest struct {
@@ -323,12 +399,18 @@ func (h *AuthHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Req
 	}
 	token, err := h.TokenService.GenerateUserToken(user)
 	if err != nil {
-		http.Error(w, "failed to generate token", http.StatusInternalServerError)
 		log.Printf("token generation error: %v", err)
+		CreateErrorResponse(w, http.StatusInternalServerError, ErrServerError)
+		return
+	}
+	refreshToken, err := h.RefreshTokenStore.CreateRefreshToken(user.ID, client.ID, code.Scope, service.RefreshTokenExpiration)
+	if err != nil {
+		log.Printf("failed to create refresh token: %v", err)
+		CreateErrorResponse(w, http.StatusInternalServerError, ErrServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(TokenResponse{Token: token, Type: "Bearer", ExpiresIn: 86400})
+	json.NewEncoder(w).Encode(TokenResponse{Token: token, Type: "Bearer", ExpiresIn: int64(service.TokenExpiration / time.Second), RefreshToken: refreshToken.Token, Scope: code.Scope})
 }
 
 type ClientCredentialsTokenRequest struct {

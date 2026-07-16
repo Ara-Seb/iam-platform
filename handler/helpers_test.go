@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/yourname/iam-platform/crypto"
@@ -88,7 +89,7 @@ func (m *MockAuthService) Login(ctx context.Context, email, password string) (st
 func (m *MockAuthService) GetUserByID(ctx context.Context, id string) (*models.User, error) {
 	m.GetUserByIDCalled = true
 	if m.GetUserByIDFunc == nil {
-		return nil, nil
+		return &models.User{ID: testUserID}, nil
 	}
 	return m.GetUserByIDFunc(ctx, id)
 }
@@ -170,6 +171,51 @@ func GetMockCodeStoreWithPKCE() *MockCodeStore {
 			}, nil
 		},
 	}
+}
+
+type MockRefreshTokenStore struct {
+	CreateRefreshTokenCalled bool
+	CreateRefreshTokenFunc   func(userID, clientID, scope string, expiration time.Duration) (*store.RefreshToken, error)
+	VerifyTokenCalled        bool
+	VerifyTokenFunc          func(token string) (*store.RefreshToken, error)
+	DeleteTokenCalled        bool
+	DeleteTokenFunc          func(token string) error
+}
+
+func (m *MockRefreshTokenStore) CreateRefreshToken(userID, clientID, scope string, expiration time.Duration) (*store.RefreshToken, error) {
+	m.CreateRefreshTokenCalled = true
+	if m.CreateRefreshTokenFunc == nil {
+		return &store.RefreshToken{
+			Token:     "refreshtoken123",
+			UserID:    userID,
+			ClientID:  clientID,
+			Scope:     scope,
+			ExpiresAt: time.Now().Add(expiration),
+		}, nil
+	}
+	return m.CreateRefreshTokenFunc(userID, clientID, scope, expiration)
+}
+
+func (m *MockRefreshTokenStore) VerifyToken(token string) (*store.RefreshToken, error) {
+	m.VerifyTokenCalled = true
+	if m.VerifyTokenFunc == nil {
+		return &store.RefreshToken{
+			Token:     token,
+			UserID:    testUserID,
+			ClientID:  testClientID,
+			Scope:     testScope,
+			ExpiresAt: time.Now().Add(1 * time.Hour),
+		}, nil
+	}
+	return m.VerifyTokenFunc(token)
+}
+
+func (m *MockRefreshTokenStore) DeleteToken(token string) error {
+	m.DeleteTokenCalled = true
+	if m.DeleteTokenFunc == nil {
+		return nil
+	}
+	return m.DeleteTokenFunc(token)
 }
 
 type MockTokenService struct {
