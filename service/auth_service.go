@@ -58,7 +58,7 @@ func (s *AuthService) Login(ctx context.Context, email string, password string) 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		return "", nil, ErrInvalidCredentials
 	}
-	token, err := s.TokenService.GenerateToken(user)
+	token, err := s.TokenService.GenerateUserToken(user)
 	return token, user, err
 }
 

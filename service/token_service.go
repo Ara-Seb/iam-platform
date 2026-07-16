@@ -18,7 +18,9 @@ func NewTokenService(keys *keys.Keys) *TokenService {
 	return &TokenService{keys: keys}
 }
 
-func (s *TokenService) GenerateToken(user *models.User) (string, error) {
+var TokenExpiration = 24 * time.Hour
+
+func (s *TokenService) GenerateUserToken(user *models.User) (string, error) {
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"jti":   uuid.New().String(),
@@ -27,7 +29,25 @@ func (s *TokenService) GenerateToken(user *models.User) (string, error) {
 		"role":  user.Role,
 		"iss":   "iam-platform",
 		"iat":   now.Unix(),
-		"exp":   now.Add(24 * time.Hour).Unix(),
+		"exp":   now.Add(TokenExpiration).Unix(),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	signed, err := token.SignedString(s.keys.Private)
+	if err != nil {
+		return "", fmt.Errorf("failed to sign token: %w", err)
+	}
+	return signed, nil
+}
+
+func (s *TokenService) GenerateClientToken(clientID string) (string, error) {
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"jti": uuid.New().String(),
+		"sub": clientID,
+		"iss": "iam-platform",
+		"iat": now.Unix(),
+		"exp": now.Add(TokenExpiration).Unix(),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)

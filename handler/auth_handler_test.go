@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/yourname/iam-platform/models"
@@ -355,8 +356,13 @@ func TestToken_Success(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	handler.Token(w, req)
+	var resp TokenResponse
+	assert.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Equal(t, "Bearer", resp.Type)
+	assert.Equal(t, int64(service.TokenExpiration/time.Second), resp.ExpiresIn)
+	assert.Equal(t, "token123", resp.Token)
 	assert.Equal(t, http.StatusOK, w.Result().StatusCode)
-	assert.True(t, mockTokenService.GenerateTokenCalled)
+	assert.True(t, mockTokenService.GenerateUserTokenCalled)
 }
 
 func TestToken_SuccessPKCE(t *testing.T) {
@@ -367,6 +373,77 @@ func TestToken_SuccessPKCE(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	handler.Token(w, req)
+	var resp TokenResponse
+	assert.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Equal(t, "Bearer", resp.Type)
+	assert.Equal(t, int64(service.TokenExpiration/time.Second), resp.ExpiresIn)
+	assert.Equal(t, "token123", resp.Token)
 	assert.Equal(t, http.StatusOK, w.Result().StatusCode)
-	assert.True(t, mockTokenService.GenerateTokenCalled)
+	assert.True(t, mockTokenService.GenerateUserTokenCalled)
+}
+
+func TestToken_ClientCredentials_Success(t *testing.T) {
+	mockTokenService := &MockTokenService{}
+	handler := NewAuthHandler(&MockClientService{}, nil, nil, nil, mockTokenService)
+	body := "client_id=" + testClientID + "&client_secret=secret&grant_type=client_credentials"
+	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	handler.Token(w, req)
+	var resp TokenResponse
+	assert.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Equal(t, "Bearer", resp.Type)
+	assert.Equal(t, int64(service.TokenExpiration/time.Second), resp.ExpiresIn)
+	assert.Equal(t, "token456", resp.Token)
+	assert.Equal(t, http.StatusOK, w.Result().StatusCode)
+	assert.True(t, mockTokenService.GenerateClientTokenCalled)
+}
+
+func TestToken_ClientCredentials_BadSecret(t *testing.T) {
+	mockClientService := &MockClientService{
+		ValidateSecretFunc: func(ctx context.Context, clientID string, secret string) error {
+			return errors.New("invalid secret")
+		},
+	}
+	handler := NewAuthHandler(mockClientService, nil, nil, nil, nil)
+	body := "client_id=" + testClientID + "&client_secret=wrongsecret&grant_type=client_credentials"
+	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	handler.Token(w, req)
+	assert.True(t, mockClientService.ValidateSecretCalled)
+	ConfirmErrorResponse(t, w, http.StatusUnauthorized, ErrInvalidClient)
+}
+
+func TestToken_ClientCredentials_InvalidClient(t *testing.T) {
+	mockClientService := &MockClientService{
+		GetClientByIDFunc: func(ctx context.Context, id string) (*models.Client, error) {
+			return nil, repository.ErrNotFound
+		},
+	}
+	handler := NewAuthHandler(mockClientService, nil, nil, nil, nil)
+	body := "client_id=invalid&client_secret=secret&grant_type=client_credentials"
+	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	handler.Token(w, req)
+	assert.True(t, mockClientService.GetClientByIDCalled)
+	ConfirmErrorResponse(t, w, http.StatusUnauthorized, ErrInvalidClient)
+}
+
+func TestToken_ClientCredential_PublicClient(t *testing.T) {
+	mockClientService := &MockClientService{
+		GetClientByIDFunc: func(ctx context.Context, id string) (*models.Client, error) {
+			return &models.Client{ClientType: models.ClientTypePublic}, nil
+		},
+	}
+	handler := NewAuthHandler(mockClientService, nil, nil, nil, nil)
+	body := "client_id=" + testClientID + "&grant_type=client_credentials"
+	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	handler.Token(w, req)
+	assert.True(t, mockClientService.GetClientByIDCalled)
+	assert.False(t, mockClientService.ValidateSecretCalled)
+	ConfirmErrorResponse(t, w, http.StatusUnauthorized, ErrInvalidClient)
 }

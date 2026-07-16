@@ -173,16 +173,26 @@ func GetMockCodeStoreWithPKCE() *MockCodeStore {
 }
 
 type MockTokenService struct {
-	GenerateTokenCalled bool
-	GenerateTokenFunc   func(user *models.User) (string, error)
+	GenerateUserTokenCalled   bool
+	GenerateUserTokenFunc     func(user *models.User) (string, error)
+	GenerateClientTokenCalled bool
+	GenerateClientTokenFunc   func(clientID string) (string, error)
 }
 
-func (m *MockTokenService) GenerateToken(user *models.User) (string, error) {
-	m.GenerateTokenCalled = true
-	if m.GenerateTokenFunc == nil {
+func (m *MockTokenService) GenerateUserToken(user *models.User) (string, error) {
+	m.GenerateUserTokenCalled = true
+	if m.GenerateUserTokenFunc == nil {
 		return "token123", nil
 	}
-	return m.GenerateTokenFunc(user)
+	return m.GenerateUserTokenFunc(user)
+}
+
+func (m *MockTokenService) GenerateClientToken(clientID string) (string, error) {
+	m.GenerateClientTokenCalled = true
+	if m.GenerateClientTokenFunc == nil {
+		return "token456", nil
+	}
+	return m.GenerateClientTokenFunc(clientID)
 }
 
 func ConfirmErrorResponse(t *testing.T, w *httptest.ResponseRecorder, expectedStatus int, expectedError OAuthErrorResponse) {

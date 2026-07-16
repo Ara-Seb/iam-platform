@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/schema"
 	"github.com/yourname/iam-platform/crypto"
@@ -39,7 +40,8 @@ type CodeStore interface {
 }
 
 type TokenService interface {
-	GenerateToken(user *models.User) (string, error)
+	GenerateUserToken(user *models.User) (string, error)
+	GenerateClientToken(clientID string) (string, error)
 }
 
 type AuthHandler struct {
@@ -249,8 +251,7 @@ func (h *AuthHandler) handleRefreshToken(w http.ResponseWriter, r *http.Request)
 	panic("unimplemented")
 }
 
-type TokenRequest struct {
-	GrantType    string  `schema:"grant_type"`
+type AuthorizationCodeTokenRequest struct {
 	ClientID     string  `schema:"client_id"`
 	ClientSecret string  `schema:"client_secret"`
 	RedirectURI  string  `schema:"redirect_uri"`
@@ -258,8 +259,16 @@ type TokenRequest struct {
 	CodeVerifier *string `schema:"code_verifier"`
 }
 
+type TokenResponse struct {
+	Token        string `json:"access_token"`
+	Type         string `json:"token_type"`
+	ExpiresIn    int64  `json:"expires_in"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	Scope        string `json:"scope,omitempty"`
+}
+
 func (h *AuthHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Request) {
-	var req TokenRequest
+	var req AuthorizationCodeTokenRequest
 	if err := h.Decoder.Decode(&req, r.Form); err != nil {
 		CreateErrorResponse(w, http.StatusBadRequest, ErrInvalidRequest)
 		return
@@ -312,16 +321,50 @@ func (h *AuthHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Req
 		log.Printf("user not found, error: %v", err)
 		return
 	}
-	token, err := h.TokenService.GenerateToken(user)
+	token, err := h.TokenService.GenerateUserToken(user)
 	if err != nil {
 		http.Error(w, "failed to generate token", http.StatusInternalServerError)
 		log.Printf("token generation error: %v", err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(LoginResponse{Token: token})
+	json.NewEncoder(w).Encode(TokenResponse{Token: token, Type: "Bearer", ExpiresIn: 86400})
+}
+
+type ClientCredentialsTokenRequest struct {
+	ClientID     string `schema:"client_id"`
+	ClientSecret string `schema:"client_secret"`
 }
 
 func (h *AuthHandler) handleClientCredentials(w http.ResponseWriter, r *http.Request) {
-	panic("unimplemented")
+	var req ClientCredentialsTokenRequest
+	if err := h.Decoder.Decode(&req, r.Form); err != nil {
+		CreateErrorResponse(w, http.StatusBadRequest, ErrInvalidRequest)
+		return
+	}
+	client, err := h.ClientService.GetClientByID(r.Context(), req.ClientID)
+	if err != nil {
+		log.Printf("unrecognized client, error: %v", err)
+		CreateErrorResponse(w, http.StatusUnauthorized, ErrInvalidClient)
+		return
+	}
+	if client.ClientType != models.ClientTypeConfidential {
+		log.Printf("client is not confidential")
+		CreateErrorResponse(w, http.StatusUnauthorized, ErrInvalidClient)
+		return
+	}
+	err = h.ClientService.ValidateSecret(r.Context(), req.ClientID, req.ClientSecret)
+	if err != nil {
+		log.Printf("invalid client secret, error: %v", err)
+		CreateErrorResponse(w, http.StatusUnauthorized, ErrInvalidClient)
+		return
+	}
+	token, err := h.TokenService.GenerateClientToken(client.ID)
+	if err != nil {
+		log.Printf("token generation error: %v", err)
+		CreateErrorResponse(w, http.StatusInternalServerError, ErrServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(TokenResponse{Token: token, Type: "Bearer", ExpiresIn: int64(service.TokenExpiration / time.Second)})
 }
