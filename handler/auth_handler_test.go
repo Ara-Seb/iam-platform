@@ -104,7 +104,7 @@ func TestAuthorize_InvalidRedirectURI(t *testing.T) {
 }
 
 func TestAuthorize_MissingCodeChallenge(t *testing.T) {
-	handler := NewAuthHandler(GetMockClientServiceWithPublicClient(), nil, nil, nil, nil, nil)
+	handler := NewAuthHandler(&MockClientService{}, nil, nil, nil, nil, nil)
 	reqTarget := "/authorize?response_type=code&client_id=" + testClientID + "&redirect_uri=" + testRedirectURI + "&scope=" + testScope + "&state=" + testState
 	req := httptest.NewRequest(http.MethodGet, reqTarget, nil)
 	w := httptest.NewRecorder()
@@ -115,7 +115,7 @@ func TestAuthorize_MissingCodeChallenge(t *testing.T) {
 }
 
 func TestAuthorize_InvalidCodeChallengeMethod(t *testing.T) {
-	handler := NewAuthHandler(GetMockClientServiceWithPublicClient(), nil, nil, nil, nil, nil)
+	handler := NewAuthHandler(&MockClientService{}, nil, nil, nil, nil, nil)
 	reqTarget := "/authorize?response_type=code&client_id=" + testClientID + "&redirect_uri=" + testRedirectURI + "&scope=" + testScope + "&state=" + testState + "&code_challenge=challenge&code_challenge_method=invalid"
 	req := httptest.NewRequest(http.MethodGet, reqTarget, nil)
 	w := httptest.NewRecorder()
@@ -154,7 +154,7 @@ func TestAuthorize_SessionStoreError(t *testing.T) {
 		},
 	}
 	handler := NewAuthHandler(&MockClientService{}, nil, mockSessionStore, nil, nil, nil)
-	reqTarget := "/authorize?response_type=code&client_id=" + testClientID + "&redirect_uri=" + testRedirectURI + "&scope=" + testScope + "&state=" + testState
+	reqTarget := "/authorize?response_type=code&client_id=" + testClientID + "&redirect_uri=" + testRedirectURI + "&scope=" + testScope + "&state=" + testState + "&code_challenge=challenge&code_challenge_method=S256"
 	req := httptest.NewRequest(http.MethodGet, reqTarget, nil)
 	w := httptest.NewRecorder()
 	handler.Authorize(w, req)
@@ -166,7 +166,7 @@ func TestAuthorize_SessionStoreError(t *testing.T) {
 func TestAuthorize_Success(t *testing.T) {
 	mockSessionStore := &MockSessionStore{}
 	handler := NewAuthHandler(&MockClientService{}, nil, mockSessionStore, nil, nil, nil)
-	reqTarget := "/authorize?response_type=code&client_id=" + testClientID + "&redirect_uri=" + testRedirectURI + "&scope=" + testScope + "&state=" + testState
+	reqTarget := "/authorize?response_type=code&client_id=" + testClientID + "&redirect_uri=" + testRedirectURI + "&scope=" + testScope + "&state=" + testState + "&code_challenge=challenge&code_challenge_method=S256"
 	req := httptest.NewRequest(http.MethodGet, reqTarget, nil)
 	w := httptest.NewRecorder()
 	handler.Authorize(w, req)
@@ -304,7 +304,7 @@ func TestToken_ClientIDMismatch(t *testing.T) {
 
 func TestToken_RedirectURIMismatch(t *testing.T) {
 	handler := NewAuthHandler(&MockClientService{}, nil, nil, &MockCodeStore{}, nil, nil)
-	body := "client_id=" + testClientID + "&client_secret=secret&grant_type=authorization_code&code=valid&redirect_uri=https://malicious.com/callback"
+	body := "client_id=" + testClientID + "&client_secret=secret&grant_type=authorization_code&code=valid&redirect_uri=https://malicious.com/callback&code_verifier=" + testValidVerifier
 	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
@@ -319,7 +319,7 @@ func TestToken_UserNotFound(t *testing.T) {
 		},
 	}
 	handler := NewAuthHandler(&MockClientService{}, mockAuthService, nil, &MockCodeStore{}, nil, nil)
-	body := "client_id=" + testClientID + "&client_secret=secret&grant_type=authorization_code&code=valid&redirect_uri=" + testRedirectURI
+	body := "client_id=" + testClientID + "&client_secret=secret&grant_type=authorization_code&code=valid&redirect_uri=" + testRedirectURI + "&code_verifier=" + testValidVerifier
 	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
@@ -329,7 +329,7 @@ func TestToken_UserNotFound(t *testing.T) {
 }
 
 func TestToken_MissingCodeVerifier(t *testing.T) {
-	handler := NewAuthHandler(GetMockClientServiceWithPublicClient(), nil, nil, GetMockCodeStoreWithPKCE(), nil, nil)
+	handler := NewAuthHandler(&MockClientService{}, nil, nil, GetMockCodeStoreWithPKCE(), nil, nil)
 	body := "client_id=" + testClientID + "&grant_type=authorization_code&code=valid&redirect_uri=" + testRedirectURI
 	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -339,7 +339,7 @@ func TestToken_MissingCodeVerifier(t *testing.T) {
 }
 
 func TestToken_BadCodeVerifier(t *testing.T) {
-	handler := NewAuthHandler(GetMockClientServiceWithPublicClient(), nil, nil, GetMockCodeStoreWithPKCE(), nil, nil)
+	handler := NewAuthHandler(&MockClientService{}, nil, nil, GetMockCodeStoreWithPKCE(), nil, nil)
 	body := "client_id=" + testClientID + "&grant_type=authorization_code&code=valid&redirect_uri=" + testRedirectURI + "&code_verifier=" + testInvalidVerifier
 	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -352,7 +352,7 @@ func TestToken_Success(t *testing.T) {
 	mockTokenService := &MockTokenService{}
 	mockRefreshTokenStore := &MockRefreshTokenStore{}
 	handler := NewAuthHandler(&MockClientService{}, &MockAuthService{}, nil, &MockCodeStore{}, mockRefreshTokenStore, mockTokenService)
-	body := "client_id=" + testClientID + "&client_secret=secret&grant_type=authorization_code&code=valid&redirect_uri=" + testRedirectURI
+	body := "client_id=" + testClientID + "&client_secret=secret&grant_type=authorization_code&code=valid&redirect_uri=" + testRedirectURI + "&code_verifier=" + testValidVerifier
 	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
@@ -371,7 +371,7 @@ func TestToken_Success(t *testing.T) {
 func TestToken_SuccessPKCE(t *testing.T) {
 	mockTokenService := &MockTokenService{}
 	mockRefreshTokenStore := &MockRefreshTokenStore{}
-	handler := NewAuthHandler(GetMockClientServiceWithPublicClient(), &MockAuthService{}, nil, GetMockCodeStoreWithPKCE(), mockRefreshTokenStore, mockTokenService)
+	handler := NewAuthHandler(&MockClientService{}, &MockAuthService{}, nil, GetMockCodeStoreWithPKCE(), mockRefreshTokenStore, mockTokenService)
 	body := "client_id=" + testClientID + "&grant_type=authorization_code&code=valid&redirect_uri=" + testRedirectURI + "&code_verifier=" + testValidVerifier
 	req := httptest.NewRequest(http.MethodPost, "/token", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

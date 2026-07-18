@@ -145,11 +145,13 @@ func (m *MockCodeStore) VerifyCode(code string) (*store.AuthorizationCode, error
 	m.VerifyCodeCalled = true
 	if m.VerifyCodeFunc == nil {
 		return &store.AuthorizationCode{
-			ClientID:    testClientID,
-			UserID:      testUserID,
-			RedirectURI: testRedirectURI,
-			Scope:       testScope,
-			State:       testState,
+			ClientID:            testClientID,
+			UserID:              testUserID,
+			RedirectURI:         testRedirectURI,
+			Scope:               testScope,
+			State:               testState,
+			CodeChallenge:       crypto.SHA256Hash(testValidVerifier),
+			CodeChallengeMethod: "S256",
 		}, nil
 	}
 	return m.VerifyCodeFunc(code)
@@ -166,8 +168,8 @@ func GetMockCodeStoreWithPKCE() *MockCodeStore {
 				RedirectURI:         testRedirectURI,
 				Scope:               testScope,
 				State:               testState,
-				CodeChallenge:       &challenge,
-				CodeChallengeMethod: &method,
+				CodeChallenge:       challenge,
+				CodeChallengeMethod: method,
 			}, nil
 		},
 	}

@@ -14,8 +14,8 @@ type AuthorizationCode struct {
 	RedirectURI         string
 	Scope               string
 	State               string
-	CodeChallenge       *string
-	CodeChallengeMethod *string
+	CodeChallenge       string
+	CodeChallengeMethod string
 	CreatedAt           time.Time
 }
 
@@ -44,8 +44,8 @@ func (s *AuthCodeStore) CreateCode(clientID, userID, redirectURI, scope, state, 
 		RedirectURI:         redirectURI,
 		Scope:               scope,
 		State:               state,
-		CodeChallenge:       &codeChallenge,
-		CodeChallengeMethod: &codeChallengeMethod,
+		CodeChallenge:       codeChallenge,
+		CodeChallengeMethod: codeChallengeMethod,
 		CreatedAt:           time.Now(),
 	}
 	s.mutex.Lock()

@@ -180,39 +180,44 @@ type AuthorizeRequest struct {
 func (h *AuthHandler) Authorize(w http.ResponseWriter, r *http.Request) {
 	var req AuthorizeRequest
 	if err := h.Decoder.Decode(&req, r.URL.Query()); err != nil {
+		log.Printf("failed to decode authorize request: %v", err)
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 	if req.ClientId == "" || req.RedirectURI == "" {
+		log.Printf("missing required parameters: client_id or redirect_uri")
 		http.Error(w, "missing required parameters", http.StatusBadRequest)
 		return
 	}
 
 	client, err := h.ClientService.GetClientByID(r.Context(), req.ClientId)
 	if err != nil {
+		log.Printf("unrecognized client_id: %v", err)
 		http.Error(w, "unrecognized client_id", http.StatusUnauthorized)
 		return
 	}
 	if !utils.Contains(client.RedirectURIs, req.RedirectURI) {
+		log.Printf("invalid redirect_uri: %v", err)
 		http.Error(w, "invalid redirect_uri", http.StatusUnauthorized)
 		return
 	}
 	if req.Scope == "" || req.State == "" {
+		log.Printf("missing required parameters: scope or state")
 		URI := utils.BuildErrorRedirectURI(req.RedirectURI, string(ErrInvalidRequest), req.State)
 		http.Redirect(w, r, URI, http.StatusFound)
 		return
 	}
 	if req.ResponseType != "code" {
+		log.Printf("unsupported response type: %s", req.ResponseType)
 		URI := utils.BuildErrorRedirectURI(req.RedirectURI, string(ErrUnsupportedResponseType), req.State)
 		http.Redirect(w, r, URI, http.StatusFound)
 		return
 	}
-	if client.ClientType == models.ClientTypePublic {
-		if req.CodeChallenge == "" || req.CodeChallengeMethod != "S256" {
-			URI := utils.BuildErrorRedirectURI(req.RedirectURI, string(ErrInvalidRequest), req.State)
-			http.Redirect(w, r, URI, http.StatusFound)
-			return
-		}
+	if req.CodeChallenge == "" || req.CodeChallengeMethod != "S256" {
+		log.Printf("invalid code challenge or method")
+		URI := utils.BuildErrorRedirectURI(req.RedirectURI, string(ErrInvalidRequest), req.State)
+		http.Redirect(w, r, URI, http.StatusFound)
+		return
 	}
 
 	session := &session.AuthorizationSession{
@@ -351,50 +356,54 @@ func (h *AuthHandler) handleAuthorizationCode(w http.ResponseWriter, r *http.Req
 	}
 	client, err := h.ClientService.GetClientByID(r.Context(), req.ClientID)
 	if err != nil {
-		CreateErrorResponse(w, http.StatusUnauthorized, ErrInvalidClient)
 		log.Printf("unrecognized client, error: %v", err)
+		CreateErrorResponse(w, http.StatusUnauthorized, ErrInvalidClient)
 		return
 	}
 	if client.ClientType == models.ClientTypeConfidential {
 		err = h.ClientService.ValidateSecret(r.Context(), req.ClientID, req.ClientSecret)
 		if err != nil {
-			CreateErrorResponse(w, http.StatusUnauthorized, ErrInvalidClient)
 			log.Printf("invalid client secret, error: %v", err)
+			CreateErrorResponse(w, http.StatusUnauthorized, ErrInvalidClient)
 			return
 		}
 	}
 	code, err := h.CodeStore.VerifyCode(req.Code)
 	if err != nil {
-		CreateErrorResponse(w, http.StatusBadRequest, ErrInvalidGrant)
 		log.Printf("invalid code, error: %v", err)
+		CreateErrorResponse(w, http.StatusBadRequest, ErrInvalidGrant)
 		return
 	}
 	if req.ClientID != code.ClientID {
-		CreateErrorResponse(w, http.StatusBadRequest, ErrInvalidGrant)
 		log.Printf("client_id mismatch, expected %s, got %s", code.ClientID, req.ClientID)
+		CreateErrorResponse(w, http.StatusBadRequest, ErrInvalidGrant)
 		return
 	}
-	if code.CodeChallenge != nil && code.CodeChallengeMethod != nil {
-		if req.CodeVerifier == nil || !utils.ValidateCodeVerifier(*req.CodeVerifier) {
-			CreateErrorResponse(w, http.StatusBadRequest, ErrInvalidRequest)
-			log.Printf("invalid code_verifier")
-			return
-		}
-		if !crypto.VerifyCodeChallenge(*req.CodeVerifier, *code.CodeChallenge, *code.CodeChallengeMethod) {
-			CreateErrorResponse(w, http.StatusBadRequest, ErrInvalidGrant)
-			log.Printf("code_verifier does not match code_challenge")
-			return
-		}
+	if req.CodeVerifier == nil || !utils.ValidateCodeVerifier(*req.CodeVerifier) {
+		log.Printf("invalid code_verifier")
+		CreateErrorResponse(w, http.StatusBadRequest, ErrInvalidRequest)
+		return
 	}
-	if req.RedirectURI != code.RedirectURI {
+	if code.CodeChallenge == "" || code.CodeChallengeMethod == "" {
+		log.Printf("code_challenge or code_challenge_method missing in stored code")
+		CreateErrorResponse(w, http.StatusInternalServerError, ErrServerError)
+		return
+	}
+	if !crypto.VerifyCodeChallenge(*req.CodeVerifier, code.CodeChallenge, code.CodeChallengeMethod) {
+		log.Printf("code_verifier does not match code_challenge")
 		CreateErrorResponse(w, http.StatusBadRequest, ErrInvalidGrant)
+		return
+	}
+
+	if req.RedirectURI != code.RedirectURI {
 		log.Printf("redirect_uri mismatch, expected %s, got %s", code.RedirectURI, req.RedirectURI)
+		CreateErrorResponse(w, http.StatusBadRequest, ErrInvalidGrant)
 		return
 	}
 	user, err := h.AuthService.GetUserByID(r.Context(), code.UserID)
 	if err != nil {
-		CreateErrorResponse(w, http.StatusBadRequest, ErrInvalidGrant)
 		log.Printf("user not found, error: %v", err)
+		CreateErrorResponse(w, http.StatusBadRequest, ErrInvalidGrant)
 		return
 	}
 	token, err := h.TokenService.GenerateUserToken(user)
