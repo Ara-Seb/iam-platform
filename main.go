@@ -3,9 +3,13 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
@@ -20,7 +24,21 @@ import (
 
 func main() {
 	if err := godotenv.Load(); err != nil {
-		log.Fatal("error loading .env file")
+		log.Println("no .env file found, using environment variables directly")
+	}
+	port := os.Getenv("PORT")
+	if port == "" {
+		log.Fatal("PORT environment variable is not set")
+	}
+	hashKey := os.Getenv("SESSION_HASH_KEY")
+	hashKeyBytes, err := base64.StdEncoding.DecodeString(hashKey)
+	if err != nil || len(hashKeyBytes) != 32 {
+		log.Fatal("invalid SESSION_HASH_KEY")
+	}
+	blockKey := os.Getenv("SESSION_BLOCK_KEY")
+	blockKeyBytes, err := base64.StdEncoding.DecodeString(blockKey)
+	if err != nil || (len(blockKeyBytes) != 16 && len(blockKeyBytes) != 24 && len(blockKeyBytes) != 32) {
+		log.Fatal("invalid SESSION_BLOCK_KEY")
 	}
 
 	conn := db.Connect()
@@ -34,19 +52,7 @@ func main() {
 		log.Fatal(err)
 	}
 	tokenService := service.NewTokenService(keys)
-
-	hashKey := os.Getenv("SESSION_HASH_KEY")
-	hashKeyBytes, err := base64.StdEncoding.DecodeString(hashKey)
-	if err != nil || len(hashKeyBytes) != 32 {
-		log.Fatal("invalid SESSION_HASH_KEY")
-	}
-	blockKey := os.Getenv("SESSION_BLOCK_KEY")
-	blockKeyBytes, err := base64.StdEncoding.DecodeString(blockKey)
-	if err != nil || (len(blockKeyBytes) != 16 && len(blockKeyBytes) != 24 && len(blockKeyBytes) != 32) {
-		log.Fatal("invalid SESSION_BLOCK_KEY")
-	}
 	sessionStore := session.NewSessionStore(hashKeyBytes, blockKeyBytes)
-
 	authService := service.NewAuthService(userRepo, tokenService)
 	authCodeStore := store.NewAuthCodeStore()
 	refreshTokenStore := store.NewRefreshTokenStore()
@@ -69,9 +75,33 @@ func main() {
 		r.Patch("/{id}", clientHandler.UpdateClient)
 	})
 
-	port := os.Getenv("PORT")
+	server := &http.Server{
+		Addr:    ":" + port,
+		Handler: r,
+	}
+	serverErr := make(chan error, 1)
+	go func() {
+		serverErr <- server.ListenAndServe()
+	}()
+
 	log.Println("server running on :" + port)
-	if err := http.ListenAndServe(":"+port, r); err != nil {
-		log.Fatal(err)
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	select {
+	case err := <-serverErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("server error: %v", err)
+		}
+	case sig := <-sigChan:
+		log.Printf("received signal: %v, shutting down...", sig)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := server.Shutdown(ctx); err != nil {
+			log.Fatalf("graceful shutdown failed: %v", err)
+		}
+		cancel()
+		log.Printf("server gracefully stopped")
 	}
 }

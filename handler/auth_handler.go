@@ -250,14 +250,15 @@ func (h *AuthHandler) Token(w http.ResponseWriter, r *http.Request) {
 	case "refresh_token":
 		h.handleRefreshToken(w, r)
 	case "password":
-		h.handleROPC(w, r)
+		h.handleROPC(w)
 	default:
 		CreateErrorResponse(w, http.StatusBadRequest, ErrUnsupportedGrantType)
 	}
 }
 
-func (h *AuthHandler) handleROPC(w http.ResponseWriter, r *http.Request) {
-	panic("unimplemented")
+func (h *AuthHandler) handleROPC(w http.ResponseWriter) {
+	log.Printf("ROPC grant type is not supported")
+	CreateErrorResponse(w, http.StatusBadRequest, ErrUnsupportedGrantType)
 }
 
 type RefreshTokenRequest struct {
